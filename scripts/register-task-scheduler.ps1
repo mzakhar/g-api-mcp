@@ -7,12 +7,13 @@
 $TaskName = "g-api-mcp-sync"
 $ErrorActionPreference = "Stop"
 
-$SyncExe = (Get-Command g-api-mcp-sync -ErrorAction Stop).Source
-Write-Host "Found g-api-mcp-sync at: $SyncExe"
+# Use pythonw.exe (no-console Python host) to avoid any terminal window flash
+$PythonDir = Split-Path (Get-Command python -ErrorAction Stop).Source
+$PythonW = Join-Path $PythonDir "pythonw.exe"
+if (-not (Test-Path $PythonW)) { throw "pythonw.exe not found at $PythonW" }
+Write-Host "Using pythonw.exe at: $PythonW"
 
-# Wrap in powershell -WindowStyle Hidden so no console window appears each run
-$SyncArg = "-WindowStyle Hidden -NonInteractive -NoProfile -Command `"& '$SyncExe'`""
-$Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $SyncArg
+$Action = New-ScheduledTaskAction -Execute $PythonW -Argument "-m g_api_mcp.sync"
 
 # Repeat every 1 minute indefinitely
 $Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1)
