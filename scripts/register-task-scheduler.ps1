@@ -10,7 +10,9 @@ $ErrorActionPreference = "Stop"
 $SyncExe = (Get-Command g-api-mcp-sync -ErrorAction Stop).Source
 Write-Host "Found g-api-mcp-sync at: $SyncExe"
 
-$Action = New-ScheduledTaskAction -Execute $SyncExe
+# Wrap in powershell -WindowStyle Hidden so no console window appears each run
+$SyncArg = "-WindowStyle Hidden -NonInteractive -NoProfile -Command `"& '$SyncExe'`""
+$Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $SyncArg
 
 # Repeat every 1 minute indefinitely
 $Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1)
@@ -30,7 +32,7 @@ Register-ScheduledTask `
     -RunLevel Limited `
     -Force | Out-Null
 
-Write-Host "Registered '$TaskName' — polls Google Tasks every 1 minute."
+Write-Host "Registered '$TaskName' -- polls Google Tasks every 1 minute."
 Write-Host ""
 Write-Host "Useful commands:"
 Write-Host "  View status  : Get-ScheduledTaskInfo -TaskName '$TaskName'"
