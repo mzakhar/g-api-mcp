@@ -4,7 +4,7 @@ A local stdio MCP server wrapping Gmail, Google Calendar, and Google Tasks for u
 
 ## Features
 
-- **21 tools** across Gmail (7), Calendar (7), and Tasks (7)
+- **22 tools** across Gmail (7), Calendar (7), Tasks (7), and Sync (1)
 - **Context-efficient responses** — every tool returns a JSON envelope with `pagination` and `context_hint.estimated_tokens` so the LLM can plan before fetching more data
 - **List-then-fetch pattern** — list tools return thin summaries (IDs + metadata, no body); get tools fetch full content for specific IDs on demand
 - **Cursor-based pagination** — all list tools accept `page_cursor` and return `pagination.next_cursor`
@@ -44,6 +44,40 @@ A local stdio MCP server wrapping Gmail, Google Calendar, and Google Tasks for u
 | `tasks_update_task` | Partial update — title, notes, due date, status |
 | `tasks_complete_task` | Mark done and stamp completion time |
 | `tasks_delete_task` | Permanently delete a task |
+
+### Sync
+
+| Tool | Description |
+|---|---|
+| `tasks_sync_to_vault` | Fetch tasks changed since last sync, write them to the Obsidian vault as formatted task lines, and mark them complete in Google Tasks |
+
+The sync tool is driven by a config file at `%APPDATA%\g-api-mcp\sync-config.json`. Copy `sync-config.example.json` from the project root and edit it:
+
+```json
+{
+  "vault_path": "C:\\Obsidian\\MyVault",
+  "daily_notes_path": "00 Daily Plan",
+  "daily_note_section": "## Top Priorities",
+  "poll_interval_seconds": 60,
+  "task_lists": [
+    { "id": "<tasklist-id>", "name": "My List" },
+    { "id": "<tasklist-id>", "name": "Work", "project_note": "20 Projects/Work/Work.md" }
+  ]
+}
+```
+
+**Routing rules:**
+- Task lists with `project_note` → written to that note under `## Work Plan`
+- Tasks with a due date → written to the daily note for that date under `daily_note_section`
+- Tasks with no due date → written to today's daily note under `## Someday / Maybe`
+
+**Sync flow:** write to vault → append `[synced-to-vault: ...]` to the task's Google notes field → mark complete in Google Tasks. Re-running is safe — already-processed tasks are skipped via a state file at `%APPDATA%\g-api-mcp\sync-state.json`.
+
+The sync can also be run as a standalone CLI:
+
+```bash
+g-api-mcp-sync
+```
 
 ## Response Envelope
 
