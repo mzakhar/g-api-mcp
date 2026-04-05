@@ -280,7 +280,7 @@ async def gmail_get_message(
             lambda: service.users().messages().get(
                 userId="me",
                 id=message_id,
-                format="FULL",
+                format="full",
             ).execute()
         )
     except HttpError as e:

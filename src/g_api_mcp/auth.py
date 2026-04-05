@@ -73,10 +73,18 @@ class GoogleCredentialManager:
             if not self._creds.valid:
                 if self._creds.expired and self._creds.refresh_token:
                     log.info("Access token expired, refreshing...")
-                    # Re-read client identity from disk so a rotated secret is picked up
+                    # Re-read client identity from disk so a rotated secret is picked up.
+                    # Rebuild the Credentials object so client_id/client_secret are fresh
+                    # (they are read-only properties on an existing Credentials instance).
                     client_id, client_secret = _load_client_identity()
-                    self._creds.client_id = client_id
-                    self._creds.client_secret = client_secret
+                    self._creds = Credentials(
+                        token=self._creds.token,
+                        refresh_token=self._creds.refresh_token,
+                        token_uri=self._creds.token_uri,
+                        client_id=client_id,
+                        client_secret=client_secret,
+                        scopes=self._creds.scopes,
+                    )
                     try:
                         self._creds.refresh(Request())
                         # Refresh token may rotate — persist updated token
