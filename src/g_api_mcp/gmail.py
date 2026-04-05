@@ -8,7 +8,9 @@ gmail_get_message     — full content for one message
 gmail_send_message    — compose and send
 gmail_create_draft    — save to Drafts
 gmail_list_labels     — all labels for the account
+gmail_list_filters    — all Gmail inbox filters for the account
 gmail_modify_message  — add/remove labels (mark read, star, etc.)
+gmail_bulk_modify     — add/remove labels on multiple messages at once
 gmail_get_attachment  — download an attachment to a local path
 """
 
@@ -234,7 +236,7 @@ async def gmail_list_messages(
                 service.users().messages().get(
                     userId="me",
                     id=stub["id"],
-                    format="METADATA",
+                    format="metadata",
                     metadataHeaders=["From", "Subject", "Date"],
                     fields="id,threadId,snippet,internalDate,labelIds,sizeEstimate,payload/headers,payload/parts(filename)",
                 ),
@@ -342,7 +344,7 @@ async def gmail_send_message(
                 lambda: service.users().messages().get(
                     userId="me",
                     id=reply_to_message_id,
-                    format="METADATA",
+                    format="metadata",
                     metadataHeaders=["Message-ID", "References"],
                 ).execute()
             )
@@ -460,6 +462,77 @@ async def gmail_list_labels() -> str:
         for lbl in result.get("labels", [])
     ]
     env = build_envelope(data=labels, result_count=len(labels), has_more=False)
+    return json.dumps(env)
+
+
+@mcp.tool()
+async def gmail_list_filters() -> str:
+    """Return all Gmail inbox filters for this account.
+    Each filter includes criteria (from, to, subject, query, hasAttachment, etc.)
+    and actions (addLabelIds, removeLabelIds, forward, etc.).
+    Useful for understanding what filters are active before retroactively applying them.
+    """
+    try:
+        service = await _gmail_service()
+        result = await asyncio.to_thread(
+            lambda: service.users().settings().filters().list(userId="me").execute()
+        )
+    except HttpError as e:
+        return error_envelope(_http_error_message(e))
+    except RuntimeError as e:
+        return error_envelope(str(e))
+
+    filters = result.get("filter", [])
+    env = build_envelope(data=filters, result_count=len(filters), has_more=False)
+    return json.dumps(env)
+
+
+@mcp.tool()
+async def gmail_bulk_modify(
+    message_ids: list[str],
+    add_labels: list[str] | None = None,
+    remove_labels: list[str] | None = None,
+) -> str:
+    """Add or remove labels on multiple Gmail messages in a single API call.
+    More efficient than calling gmail_modify_message in a loop for batch operations.
+    Gmail API limit: up to 1000 message IDs per call.
+
+    Common uses:
+      Archive many messages:    remove_labels=["INBOX"]
+      Label many messages:      add_labels=["Label_XXXX"]
+      Mark many as read:        remove_labels=["UNREAD"]
+
+    Args:
+        message_ids: List of Gmail message IDs (from gmail_list_messages).
+        add_labels:  Label IDs to apply to all messages.
+        remove_labels: Label IDs to remove from all messages.
+    """
+    if not add_labels and not remove_labels:
+        raise ToolError("Provide at least one of add_labels or remove_labels.")
+    if not message_ids:
+        raise ToolError("message_ids must not be empty.")
+
+    try:
+        service = await _gmail_service()
+        await asyncio.to_thread(
+            lambda: service.users().messages().batchModify(
+                userId="me",
+                body={
+                    "ids": message_ids,
+                    "addLabelIds": add_labels or [],
+                    "removeLabelIds": remove_labels or [],
+                },
+            ).execute()
+        )
+    except HttpError as e:
+        return error_envelope(_http_error_message(e))
+    except RuntimeError as e:
+        return error_envelope(str(e))
+
+    env = build_envelope(
+        data={"modified_count": len(message_ids), "message_ids": message_ids},
+        is_list=False,
+    )
     return json.dumps(env)
 
 
