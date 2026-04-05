@@ -18,14 +18,16 @@ Design goals:
 ## Status
 
 - [x] Research complete
-- [ ] Project scaffold (pyproject.toml, package layout)
-- [ ] Auth setup script
-- [ ] Response envelope utility
-- [ ] Gmail tools
-- [ ] Calendar tools
-- [ ] Tasks tools
-- [ ] .mcp.json Claude Code registration
-- [ ] README / setup guide
+- [x] Project scaffold (pyproject.toml, package layout)
+- [x] Auth setup script
+- [x] Response envelope utility
+- [x] Gmail tools
+- [x] Calendar tools
+- [x] Tasks tools
+- [x] .mcp.json Claude Code registration
+- [x] README / setup guide
+- [x] Tests (envelope unit tests + tool handler tests with mocked Google services)
+- [x] `.gitattributes` (line ending normalization)
 
 ---
 
