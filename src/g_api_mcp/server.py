@@ -16,6 +16,15 @@ Claude Code / Claude Desktop registration:
 import logging
 import sys
 
+# Fix for `python -m g_api_mcp.server`: when run with -m, Python sets
+# __name__ to '__main__', so tool modules that do
+# `from g_api_mcp.server import mcp` trigger a second import and get a
+# different mcp instance (with 0 tools).  Registering this module under
+# its package path first makes the circular import resolve to the same
+# object instead of spawning a duplicate.
+if __name__ == "__main__":
+    sys.modules.setdefault("g_api_mcp.server", sys.modules["__main__"])
+
 from mcp.server.fastmcp import FastMCP
 
 # stdout is the JSON-RPC wire — all logging must go to stderr
