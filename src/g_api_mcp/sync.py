@@ -227,19 +227,15 @@ def _to_vault_line(task: dict, indent: int = 0) -> str:
         tags.append("#waiting")
     tag_part = (" " + " ".join(tags)) if tags else ""
 
-    # Deduplication anchor — invisible to Obsidian Tasks plugin queries
-    id_comment = f" <!-- gtask:{task_id} -->"
-
     prefix = "  " * indent
-    body = f"{prefix}- {checkbox} {priority} {title}{date_part}{completion_part}{tag_part}{id_comment}"
+    body = f"{prefix}- {checkbox} {priority} {title}{date_part}{completion_part}{tag_part}"
 
     lines = [body]
 
     # Notes rendering
     if notes:
         if len(notes) <= 80 and "\n" not in notes:
-            # Inline: insert before the ID comment
-            lines[0] = lines[0].removesuffix(id_comment) + f" — {notes}{id_comment}"
+            lines[0] = lines[0] + f" — {notes}"
         else:
             for note_line in notes.splitlines():
                 if note_line.strip():
@@ -287,21 +283,12 @@ def _route_task(
 # Vault upsert
 # ---------------------------------------------------------------------------
 
-_GTASK_ID_RE = re.compile(r"<!-- gtask:(\S+?) -->")
-
-
 def write_vault_task(line: str, target_file: Path, section: str) -> bool:
-    """Upsert a task line into the vault file under the given section.
+    """Insert a task line into the vault file under the given section.
 
-    Returns True on success, False on OSError.
+    Always inserts — duplicate prevention is handled upstream by the sync
+    state's updated-timestamp check.  Returns True on success, False on OSError.
     """
-    # Extract task ID from line
-    m = _GTASK_ID_RE.search(line)
-    if not m:
-        log.error("No gtask ID found in line: %r", line)
-        return False
-    task_id = m.group(1)
-
     try:
         if target_file.exists():
             text = target_file.read_text(encoding="utf-8")
@@ -309,66 +296,29 @@ def write_vault_task(line: str, target_file: Path, section: str) -> bool:
             target_file.parent.mkdir(parents=True, exist_ok=True)
             text = f"# {target_file.stem}\n\n{section}\n\n"
 
-        # Look for existing task line
-        existing_pattern = re.compile(
-            rf"^(  )*- \[[ x/>\-]\].*<!-- gtask:{re.escape(task_id)} -->",
-            re.MULTILINE,
-        )
-        existing_match = existing_pattern.search(text)
-
-        if existing_match:
-            # Replace the matched line plus any indented sub-bullets that follow
-            start = existing_match.start()
-            end = existing_match.end()
-
-            # Advance past the matched line end
-            next_newline = text.find("\n", end)
-            if next_newline == -1:
-                # Match is at end of file
-                block_end = len(text)
-            else:
-                block_end = next_newline + 1
-                # Collect subsequent indented lines (sub-bullets)
-                while block_end < len(text):
-                    rest = text[block_end:]
-                    # A sub-bullet starts with at least one space followed by "-"
-                    sub_match = re.match(r"^  +- ", rest)
-                    if sub_match:
-                        nl = rest.find("\n")
-                        if nl == -1:
-                            block_end = len(text)
-                            break
-                        block_end += nl + 1
-                    else:
-                        break
-
-            text = text[:start] + line + "\n" + text[block_end:]
+        # Insert after section header
+        section_idx = text.find(section)
+        if section_idx == -1:
+            # Section not present — append it
+            if not text.endswith("\n"):
+                text += "\n"
+            text += f"\n{section}\n\n{line}\n"
         else:
-            # Insert after section header
-            section_idx = text.find(section)
-            if section_idx == -1:
-                # Section not present — append it
-                if not text.endswith("\n"):
-                    text += "\n"
-                text += f"\n{section}\n\n{line}\n"
+            # Find end of section header line
+            header_end = text.find("\n", section_idx)
+            if header_end == -1:
+                text += f"\n\n{line}\n"
             else:
-                # Find end of section header line
-                header_end = text.find("\n", section_idx)
-                if header_end == -1:
-                    text += f"\n\n{line}\n"
+                insert_pos = header_end + 1
+                # Skip blank lines immediately after header
+                while insert_pos < len(text) and text[insert_pos] == "\n":
+                    insert_pos += 1
+                # Find the next ## section or EOF to know the insertion boundary
+                next_section = re.search(r"^##", text[insert_pos:], re.MULTILINE)
+                if next_section:
+                    text = text[:insert_pos] + line + "\n\n" + text[insert_pos:]
                 else:
-                    insert_pos = header_end + 1
-                    # Skip blank lines immediately after header
-                    while insert_pos < len(text) and text[insert_pos] == "\n":
-                        insert_pos += 1
-                    # Find the next ## section or EOF to know the insertion boundary
-                    next_section = re.search(r"^##", text[insert_pos:], re.MULTILINE)
-                    if next_section:
-                        # Insert at insert_pos (right after header + blanks, before next section)
-                        text = text[:insert_pos] + line + "\n\n" + text[insert_pos:]
-                    else:
-                        # No next section — append at insert_pos
-                        text = text[:insert_pos] + line + "\n" + text[insert_pos:]
+                    text = text[:insert_pos] + line + "\n" + text[insert_pos:]
 
         # Atomic write
         tmp = target_file.with_suffix(".tmp")
