@@ -551,6 +551,10 @@ def main() -> None:
 # MCP tool
 # ---------------------------------------------------------------------------
 
+if __name__ == "__main__":
+    main()
+    sys.exit(0)
+
 from g_api_mcp.server import mcp  # noqa: E402
 
 

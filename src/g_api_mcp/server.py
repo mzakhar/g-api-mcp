@@ -52,7 +52,7 @@ mcp = FastMCP(
 from g_api_mcp import gmail as _gmail  # noqa: F401 E402
 from g_api_mcp import calendar as _calendar  # noqa: F401 E402
 from g_api_mcp import tasks as _tasks  # noqa: F401 E402
-from g_api_mcp import sync as _sync  # noqa: F401 E402
+from g_api_mcp import sync as _sync  # noqa: F401 E402  — registers tasks_sync_to_vault tool
 
 
 def main() -> None:
