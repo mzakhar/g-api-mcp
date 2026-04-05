@@ -199,3 +199,21 @@ def test_idempotency(tmp_path):
     assert snapshot_after_first == snapshot_after_second, \
         "Sync is not idempotent — running twice produces different output"
 ```
+
+## Progress Notes
+
+### 2026-04-05 — Session end
+
+**Accomplished:**
+- All 4 implementation phases completed in a single session
+- `sync.py` implemented: polling loop, `_to_vault_line`, `_route_task`, `write_vault_task`, notes marker, PATCH cleanup, MCP tool (`tasks_sync_to_vault`), CLI entry point (`g-api-mcp-sync`)
+- 92 tests passing across 5 layers (transform, vault write, integration, e2e, idempotency)
+- Fixed double MCP tool registration bug (sys.exit in `__main__` guard)
+- Enabled Google Tasks API in Cloud project; wrote live `sync-config.json` with 3 task lists (Home, Tasks, google tasks)
+- Pre-seeded sync state to "now" to skip ~80 historical tasks
+- PR #2 pushed: `mzakhar/google-tasks-vault-sync`
+
+**Next steps:**
+- Register Task Scheduler: `powershell -ExecutionPolicy Bypass -File scripts\register-task-scheduler.ps1`
+- Add `C:\Users\mzakhar\AppData\Local\Python\pythoncore-3.14-64\Scripts` to user PATH
+- Merge PR #2 once Task Scheduler is confirmed working

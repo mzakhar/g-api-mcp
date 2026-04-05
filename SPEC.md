@@ -121,12 +121,14 @@ on-demand invocation. State persisted at `%APPDATA%/g-api-mcp/sync-state.json`.
 
 See SPEC-phase-1.md through SPEC-phase-4.md.
 
-| Phase | Deliverable |
-|---|---|
-| 1 | Polling infrastructure: `sync.py` core loop, config schema, state file, `updatedMin` param |
-| 2 | Transformation + routing: `_to_vault_line()`, routing algorithm, project-match logic |
-| 3 | Vault write + cleanup: dedup upsert, notes marker, PATCH completed, Task Scheduler setup |
-| 4 | Test harness: 17-test corpus across 5 layers, e2e smoke test, baseline review |
+| Phase | Deliverable | Status |
+|---|---|---|
+| 1 | Polling infrastructure: `sync.py` core loop, config schema, state file, `updatedMin` param | complete |
+| 2 | Transformation + routing: `_to_vault_line()`, routing algorithm, project-match logic | complete |
+| 3 | Vault write + cleanup: dedup upsert, notes marker, PATCH completed, Task Scheduler setup | complete |
+| 4 | Test harness: 17-test corpus across 5 layers, e2e smoke test, baseline review | complete |
+
+> **Next action:** Register Task Scheduler — `powershell -ExecutionPolicy Bypass -File scripts\register-task-scheduler.ps1` (add Scripts dir to PATH first); then merge PR #2
 
 ## Sources
 
