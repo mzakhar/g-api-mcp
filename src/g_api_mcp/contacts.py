@@ -297,6 +297,10 @@ async def contacts_update(
     # Fetch current contact first so we have the etag and can merge
     try:
         service = await _people_service()
+    except RuntimeError as e:
+        return error_envelope(str(e))
+
+    try:
         current = await asyncio.to_thread(
             lambda: service.people().get(
                 resourceName=resource_name,
