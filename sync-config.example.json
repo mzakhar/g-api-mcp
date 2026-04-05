@@ -1,0 +1,20 @@
+{
+  "_comment": "Copy to %APPDATA%\\g-api-mcp\\sync-config.json and fill in your values.",
+  "_comment2": "Get tasklist IDs by running the tasks_list_tasklists MCP tool.",
+  "vault_path": "C:\\Obsidian\\Hivemind",
+  "daily_notes_path": "00 Daily Plan",
+  "daily_note_section": "## Top Priorities",
+  "poll_interval_seconds": 60,
+  "task_lists": [
+    {
+      "id": "@default",
+      "name": "My Tasks",
+      "project_note": null
+    },
+    {
+      "id": "REPLACE_WITH_LIST_ID",
+      "name": "Work",
+      "project_note": "20 Projects/Work/Work.md"
+    }
+  ]
+}
