@@ -25,6 +25,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.settings.basic",
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/tasks",
+    "https://www.googleapis.com/auth/contacts",
 ]
 
 CLIENT_SECRETS = Path(__file__).parent / "client_secrets.json"
