@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 mcp = FastMCP(
     "g-api-mcp",
     instructions=(
-        "Google APIs MCP server providing Gmail, Calendar, and Tasks access.\n\n"
+        "Google APIs MCP server providing Gmail, Calendar, Tasks, and Contacts access.\n\n"
         "IMPORTANT — how to use these tools efficiently:\n"
         "• All responses are JSON envelopes with `success`, `data`, `pagination`, "
         "`context_hint`, and `error` fields.\n"
@@ -52,6 +52,8 @@ mcp = FastMCP(
 from g_api_mcp import gmail as _gmail  # noqa: F401 E402
 from g_api_mcp import calendar as _calendar  # noqa: F401 E402
 from g_api_mcp import tasks as _tasks  # noqa: F401 E402
+from g_api_mcp import contacts as _contacts  # noqa: F401 E402
+from g_api_mcp import sync as _sync  # noqa: F401 E402  — registers tasks_sync_to_vault tool
 
 
 def main() -> None:

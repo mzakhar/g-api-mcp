@@ -1,0 +1,85 @@
+{
+  "track_id": 6,
+  "track_name": "Post-sync cleanup",
+  "summary": [
+    "Three viable cleanup strategies exist: PATCH status=completed, DELETE, or PATCH notes with a processed marker — each with distinct idempotency, recoverability, and UX trade-offs.",
+    "Completed tasks (status=completed) remain visible in API list calls by default (showCompleted defaults to true) but become hidden only after tasks.clear is called; they are NOT automatically purged on any documented timeline.",
+    "DELETE is permanent and irreversible; for assigned tasks (from Docs/Chat Spaces) it also deletes the source task in those surfaces — making DELETE dangerous for general-purpose sync cleanup.",
+    "The notes field (max 8192 chars) is the only writable free-form metadata field; there are no labels, tags, or custom fields in the Tasks API v1, making notes-based markers the only non-destructive idempotency mechanism.",
+    "The hidden field is read-only and can only be set indirectly via tasks.clear (which hides ALL completed tasks in the list); it cannot be set per-task via PATCH.",
+    "Recurring task deletion via DELETE triggers immediate re-creation of the task with a new ID and status=needsAction — making DELETE on recurring tasks effectively non-functional as a cleanup strategy."
+  ],
+  "findings": [
+    {
+      "source": "https://developers.google.com/workspace/tasks/reference/rest/v1/tasks#Task",
+      "key_finding": "The Task resource has two writable status values: 'needsAction' and 'completed'. Setting status=completed via PATCH also populates the read-only 'completed' RFC 3339 timestamp. The 'hidden' field is read-only and becomes true only after tasks.clear is called on the list. The 'deleted' field is read-only for assigned tasks.",
+      "confidence": "high"
+    },
+    {
+      "source": "https://developers.google.com/workspace/tasks/reference/rest/v1/tasks/patch",
+      "key_finding": "PATCH https://tasks.googleapis.com/tasks/v1/lists/{tasklist}/tasks/{task} supports patch semantics — only fields included in the request body are updated. Requires OAuth scope https://www.googleapis.com/auth/tasks. Returns the updated Task object. This is the correct endpoint for marking status=completed or adding a notes-based marker.",
+      "confidence": "high"
+    },
+    {
+      "source": "https://developers.google.com/workspace/tasks/reference/rest/v1/tasks/delete",
+      "key_finding": "DELETE https://tasks.googleapis.com/tasks/v1/lists/{tasklist}/tasks/{task} permanently removes the task with an empty response body on success. For assigned tasks (created from Google Docs or Chat Spaces), DELETE removes both the task AND the original assignment in the source document or space. There is no soft-delete or recovery mechanism documented.",
+      "confidence": "high"
+    },
+    {
+      "source": "https://developers.google.com/workspace/tasks/reference/rest/v1/tasks/list",
+      "key_finding": "tasks.list has showCompleted (default: true), showHidden (default: false), and showDeleted (default: false) query parameters. Completed tasks remain visible by default in API list calls. The updatedMin parameter enables delta/incremental queries by filtering tasks modified after a given timestamp — essential for efficient polling-based sync.",
+      "confidence": "high"
+    },
+    {
+      "source": "https://developers.google.com/workspace/tasks/reference/rest/v1/tasks/clear",
+      "key_finding": "POST .../clear hides ALL completed tasks in a tasklist, setting hidden=true on each. Tasks are not permanently deleted — they become hidden and can be retrieved with showHidden=true. This is a bulk operation affecting all completed tasks in the list, not a per-task operation. Not suitable for fine-grained per-task cleanup.",
+      "confidence": "high"
+    },
+    {
+      "source": "https://developers.google.com/workspace/tasks/reference/rest/v1/tasks/list",
+      "key_finding": "A critical distinction: tasks completed in first-party Google clients (mobile app, web UI) are returned only when BOTH showCompleted=true AND showHidden=true are set. This means tasks the user completes on their phone will not appear in default API list calls, creating an asymmetry that sync tools must account for.",
+      "confidence": "high"
+    },
+    {
+      "source": "https://issuetracker.google.com/issues/192637574",
+      "key_finding": "Deleting a recurring task via the Tasks API causes immediate re-creation of a new task instance with status=needsAction and a different ID. The original gains deleted=true but a ghost duplicate appears immediately. This makes DELETE unreliable as a cleanup strategy for any task that might be recurring.",
+      "confidence": "high"
+    },
+    {
+      "source": "https://developers.google.com/workspace/tasks/reference/rest/v1/tasks#Task",
+      "key_finding": "The notes field is the only writable free-form metadata field (max 8192 chars). There are no labels, tags, custom fields, or extension attributes in Tasks API v1. Appending a marker string like '[synced:2025-01-15T10:00:00Z vault:filename]' to the notes field is the only way to attach machine-readable processing metadata without completing or deleting the task.",
+      "confidence": "high"
+    },
+    {
+      "source": "https://developers.google.com/workspace/tasks/release-notes",
+      "key_finding": "As of July 2024, the Tasks API gained GA support for getting, editing, and deleting tasks assigned from Google Docs and Chat Spaces. The assignmentInfo field (read-only) identifies source context. This is relevant because DELETE on such tasks cascades to the source document/space.",
+      "confidence": "high"
+    },
+    {
+      "source": "https://workspaceupdates.googleblog.com/2025/08/gemini-live-google-calendar-tasks-keep.html",
+      "key_finding": "Gemini Live can create and read Google Tasks as of 2025. Tasks created by Gemini appear as regular tasks in the same tasklists accessible via the API. Completing a task via PATCH status=completed would mark it as done in Gemini's view as well. No special Gemini-specific task fields or behaviors are documented for the Tasks API v1.",
+      "confidence": "medium"
+    },
+    {
+      "source": "https://rollout.com/integration-guides/google-tasks/reading-and-writing-data-using-the-google-tasks-api",
+      "key_finding": "Third-party integration guides recommend using updatedMin for incremental sync rather than full list polls. The typical sync pattern is: poll with updatedMin=<last_sync_timestamp>, process new/updated tasks, then update the stored timestamp. This approach naturally handles idempotency by using task IDs and updated timestamps as deduplication keys.",
+      "confidence": "medium"
+    }
+  ],
+  "gaps": [
+    "No documented retention/purge timeline for completed or hidden tasks — Google does not publish how long tasks remain after being hidden by tasks.clear or deleted by tasks.delete before permanent server-side purge.",
+    "No documented behavior for PATCH status=completed on a recurring task — the issue tracker shows DELETE causes re-creation, but whether PATCH to completed follows the same pattern (spawning next occurrence) is not confirmed in official docs.",
+    "No official Google recommendation for sync tool cleanup strategy — no canonical 'best practices' guide for third-party sync integrations. All guidance is inferred from API semantics.",
+    "Gemini-created task behavior when marked completed via API is not explicitly documented — confirmed it uses standard task infrastructure but no explicit statement about Gemini UI reaction to API-completed tasks.",
+    "ETags / optimistic concurrency: the Task resource has an etag field but the PATCH documentation does not explicitly discuss using If-Match headers for safe concurrent updates.",
+    "The maximum number of tasks per list and API rate limits for PATCH/DELETE operations in a sync loop are not covered — relevant for high-volume cleanup scenarios."
+  ],
+  "delta_queries": [
+    "Search for: 'Google Tasks API PATCH recurring task status completed new instance' — confirm whether completing (not deleting) a recurring task also spawns a new instance",
+    "Search for: 'Google Tasks API rate limits quota PATCH DELETE per user per minute' — needed for designing safe bulk cleanup loops",
+    "Search for: 'Google Tasks API etag If-Match conditional update' — confirm whether conditional PATCH is supported for safe idempotent updates",
+    "Search for: 'Google Tasks completed tasks automatic purge server retention policy' — may exist in Google data retention policy docs not surfaced by current search",
+    "Fetch https://developers.google.com/workspace/tasks/reference/rest/v1/tasks/patch with showCompleted and notes field interaction details",
+    "Search GitHub for open-source Google Tasks to Obsidian sync tools to see real-world cleanup strategy patterns used in practice"
+  ]
+}

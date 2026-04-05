@@ -1,0 +1,123 @@
+{
+  "track_id": 4,
+  "track_name": "Architecture and trigger mechanism",
+  "summary": [
+    "g-api-mcp is a Python 3.11+ stdio MCP server using FastMCP (mcp[cli] >=1.26.0); all tools are async functions decorated with @mcp.tool() registered at import time",
+    "The project is purely request-response — no polling, scheduling, background threads, or file watchers exist anywhere in the codebase",
+    "Auth uses Windows Credential Locker via keyring (DPAPI); credential loading is thread-safe via GoogleCredentialManager singleton; Tasks API is already fully wired with all CRUD tools",
+    "The cleanest extension point for a sync feature is a new tasks_sync_to_vault.py module following the existing tool pattern, callable on-demand by Claude Code; for scheduled operation the /schedule skill or Windows Task Scheduler would drive it",
+    "Deduplication state must be persisted externally to the MCP server process (which is stateless between invocations); a small JSON state file tracking last-synced task updated timestamps keyed by task ID is the lightest viable approach"
+  ],
+  "findings": [
+    {
+      "source": "C:\\EpicSource\\Projects\\g-api-mcp\\src\\g_api_mcp\\server.py",
+      "key_finding": "Entry point is a FastMCP stdio server. Tools are registered by importing module files as side effects; each module uses @mcp.tool() decorator. Server starts with mcp.run() which blocks in a stdio read loop — no scheduler, no background thread, no periodic work. This is a pure synchronous request-response MCP server.",
+      "confidence": "high"
+    },
+    {
+      "source": "C:\\EpicSource\\Projects\\g-api-mcp\\src\\g_api_mcp\\tasks.py",
+      "key_finding": "All 7 Google Tasks operations (list tasklists, list tasks, get task, create, update, complete, delete) are implemented as async @mcp.tool() functions. The tasks_list_tasks tool supports due_min/due_max filtering and cursor pagination, and exposes the 'updated' timestamp on every thin task summary. These fields are exactly what a sync/deduplication mechanism needs to detect changes.",
+      "confidence": "high"
+    },
+    {
+      "source": "C:\\EpicSource\\Projects\\g-api-mcp\\src\\g_api_mcp\\auth.py",
+      "key_finding": "GoogleCredentialManager is a module-level singleton that loads the OAuth2 refresh token from Windows Credential Locker (keyring) and auto-refreshes access tokens. It is thread-safe and designed to be shared across tools. A sync script in the same package would import cred_manager and get authenticated Google API access for free with no additional auth plumbing.",
+      "confidence": "high"
+    },
+    {
+      "source": "C:\\EpicSource\\Projects\\g-api-mcp\\pyproject.toml",
+      "key_finding": "Project is installed as an editable package (pip install -e .) with a g-api-mcp console script entry point. Adding a new console script (e.g., g-api-mcp-sync) is one line in [project.scripts]. The package layout in src/g_api_mcp/ makes it trivial to add sync.py alongside gmail.py, calendar.py, tasks.py.",
+      "confidence": "high"
+    },
+    {
+      "source": "C:\\EpicSource\\Projects\\g-api-mcp\\.mcp.json",
+      "key_finding": "Claude Code registration runs the server as a subprocess via python -m g_api_mcp.server with PYTHONPATH set. A standalone sync script could be run separately from the MCP server — it shares the same package and credentials without conflicting with the running server process.",
+      "confidence": "high"
+    },
+    {
+      "source": "C:\\EpicSource\\Projects\\g-api-mcp\\src\\g_api_mcp\\envelope.py",
+      "key_finding": "The envelope pattern (build_envelope / error_envelope) is a thin utility with no server-side state. If a sync MCP tool is added, it should return the same envelope schema for consistency. If the sync runs as a standalone script (not an MCP tool), the envelope is not needed.",
+      "confidence": "high"
+    },
+    {
+      "source": "C:\\EpicSource\\Projects\\g-api-mcp (full codebase scan)",
+      "key_finding": "No scheduled tasks, polling loops, file watchers, cron utilities, APScheduler, asyncio.sleep loops, or background task infrastructure exist anywhere in the codebase. The project has zero precedent for autonomous periodic execution — this is a gap that must be filled by the trigger mechanism chosen for the sync feature.",
+      "confidence": "high"
+    },
+    {
+      "source": "C:\\EpicSource\\Projects\\g-api-mcp\\src\\g_api_mcp\\tasks.py (_to_thin_task)",
+      "key_finding": "The 'updated' field (RFC 3339 timestamp) is surfaced in thin task summaries from tasks_list_tasks. This is the key field for change detection: a sync script can compare stored last-seen 'updated' values against the API response to identify new or modified tasks without fetching full task details first.",
+      "confidence": "high"
+    }
+  ],
+  "architecture_decisions": [
+    {
+      "decision_point": "Where does the sync live?",
+      "options": [
+        "New MCP tool in g-api-mcp (tasks_sync_to_vault)",
+        "Standalone sync script in g-api-mcp/scripts/",
+        "Separate repo/package"
+      ],
+      "recommendation": "New module src/g_api_mcp/sync.py + console script entry point g-api-mcp-sync. Reuses auth, cred_manager, and Google API patterns. Expose as both a standalone runnable script AND an optional @mcp.tool() for on-demand Claude-triggered syncs. Do NOT put it in a separate repo — the shared auth singleton is too valuable.",
+      "rationale": "Minimizes new infrastructure. Auth is solved. Pattern is established. A console script can be driven by any scheduler independently of the MCP server process."
+    },
+    {
+      "decision_point": "Trigger mechanism",
+      "options": [
+        "Windows Task Scheduler (schtasks)",
+        "/schedule skill (Claude Code remote agent cron)",
+        "Manual MCP tool call from Claude",
+        "Standalone daemon with asyncio polling loop"
+      ],
+      "recommendation": "Windows Task Scheduler as primary trigger for reliable background execution; MCP tool call as secondary for on-demand/manual syncs from Claude Code. Skip the /schedule skill (requires a running Claude Code session) and daemon (adds complexity, no crash recovery).",
+      "rationale": "Windows Task Scheduler is always-on, survives reboots, has built-in logging, and can run headlessly. A 15-30 minute interval is appropriate for a 'Gemini added tasks on phone' use case. The MCP tool path enables manual triggered syncs from Claude without needing to touch the scheduler."
+    },
+    {
+      "decision_point": "Deduplication / idempotency",
+      "options": [
+        "JSON state file (task_id → last_synced_updated_timestamp)",
+        "SQLite database",
+        "Vault note frontmatter as ground truth",
+        "No state — always overwrite"
+      ],
+      "recommendation": "JSON state file at a well-known path (e.g., %APPDATA%/g-api-mcp/sync-state.json or project root sync-state.json). Track {task_id: {updated: RFC3339, vault_path: str}}. This is sufficient for the scale of a personal task list.",
+      "rationale": "SQLite is overkill for a personal task list. Always-overwrite breaks vault edits. Vault frontmatter as sole ground truth requires a vault read on every sync (expensive). JSON state file is readable, diffable, git-ignorable, and covers all required operations: skip-if-unchanged, detect-updates, find-deletions."
+    },
+    {
+      "decision_point": "Sync direction",
+      "options": [
+        "One-way: Google Tasks → vault only",
+        "Two-way: vault changes synced back to Google Tasks"
+      ],
+      "recommendation": "One-way (Google Tasks → vault) for v1. Two-way sync requires conflict resolution and is significantly more complex.",
+      "rationale": "The stated use case is 'Gemini populates tasks on phone, they appear in vault.' No vault-to-Google flow is needed initially. Vault notes can be edited freely; sync will not overwrite vault-side changes if update detection uses the task's Google-side 'updated' timestamp."
+    },
+    {
+      "decision_point": "State file location",
+      "options": [
+        "Project root (C:\\EpicSource\\Projects\\g-api-mcp\\sync-state.json)",
+        "%APPDATA%/g-api-mcp/sync-state.json",
+        "Alongside vault notes"
+      ],
+      "recommendation": "%APPDATA%/g-api-mcp/sync-state.json — consistent with where auth token would go on non-Windows-Credential-Locker systems; keeps project root clean; survives project re-clones.",
+      "rationale": "Project root is gitignored for state files but risky if user ever cleans the directory. APPDATA is the right place for user-specific runtime state on Windows."
+    }
+  ],
+  "gaps": [
+    "No existing polling/scheduling infrastructure in g-api-mcp — trigger mechanism is a net-new component",
+    "Google Tasks API does not have push notifications (webhooks) — polling is the only option; optimal polling interval needs to be determined based on acceptable latency",
+    "tasks_list_tasks returns 'updated' in thin summaries but the exact RFC 3339 format precision needs validation to ensure reliable string comparison for change detection",
+    "Vault write conventions (note schema, frontmatter fields, folder location) are not documented in this codebase — Track 2 (Vault task conventions) must be consulted before implementing the vault write side",
+    "No error recovery / retry logic pattern exists in the current codebase beyond returning error envelopes — sync script will need its own retry strategy for transient Google API failures",
+    "The tasks_list_tasks tool does not expose an 'updatedMin' filter (Google Tasks API supports this) — adding this parameter would make incremental sync much more efficient by only fetching tasks updated since last sync",
+    "Windows Task Scheduler setup is manual — no automation or self-registration script exists"
+  ],
+  "delta_queries": [
+    "Track 2: What is the vault note schema for tasks? (frontmatter fields, folder, naming convention)",
+    "Track 1: Does Google Tasks API support updatedMin parameter in tasks.list? Verify exact parameter name and behavior",
+    "Track 3: What transformation is needed from Google Task fields to vault frontmatter/body?",
+    "Verify: does tasks_list_tasks currently pass updatedMin to the API, or would that require a new parameter in tasks.py?",
+    "Check: what is the exact format of the 'updated' field returned by Google Tasks API to confirm reliable timestamp comparison",
+    "Investigate: can a standalone Python script import g_api_mcp.auth.cred_manager without starting the MCP server? (Should work given module-level singleton pattern)"
+  ]
+}

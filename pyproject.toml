@@ -19,6 +19,7 @@ dependencies = [
 [project.scripts]
 g-api-mcp = "g_api_mcp.server:main"
 g-api-mcp-auth = "auth_setup:main"
+g-api-mcp-sync = "g_api_mcp.sync:main"
 
 [project.optional-dependencies]
 dev = [

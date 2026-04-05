@@ -38,6 +38,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.settings.basic",
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/tasks",
+    "https://www.googleapis.com/auth/contacts",
 ]
 
 
