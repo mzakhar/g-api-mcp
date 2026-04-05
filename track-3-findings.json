@@ -1,0 +1,313 @@
+{
+  "track_id": 3,
+  "track_name": "Transformation mapping",
+  "summary": [
+    "Six Google Task fields map deterministically to vault output: id (embedded as HTML comment for deduplication), status (→ checkbox state), due date (→ ⏳ YYYY-MM-DD or #someday when absent), updated (→ sync metadata), deleted (→ [-] dropped state), completed (→ [x] + ✅ date).",
+    "Four fields require heuristic inference: title (priority detection via keyword scan), notes (placement as sub-bullet or inline annotation), tasklist title (routing to daily vs. project note), and parent task ID (subtask indentation).",
+    "The default vault task form for a synced Google Task is: `- [ ] 🔼 {title} ⏳ {due_date_or_today} <!-- gtask:{id} -->`",
+    "Target note routing is a two-branch decision: if the tasklist title matches a known project folder name (or contains a project keyword), route to the project primary doc Work Plan section; otherwise route to today's daily note Top Priorities section.",
+    "The Google Tasks 'due' field is always T00:00:00.000Z (date-only semantics), which maps directly to ⏳ scheduled date — it is NOT a hard deadline and should NOT use 📅 unless overridden by a keyword signal in the title.",
+    "Priority cannot be inferred from Google Tasks fields — the API has no priority field. Default to 🔼 (medium/should-do) for all synced tasks. A post-sync priority pass by the user is expected.",
+    "Task ID must be embedded invisibly in the vault task line for deduplication. HTML comment syntax `<!-- gtask:{id} -->` is invisible to Obsidian readers and parsable by the sync tool without breaking obsidian-tasks plugin query parsing."
+  ],
+  "findings": [
+    {
+      "source": "track 1 findings (Google Tasks API schema)",
+      "key_finding": "The Task resource has no priority field, no label/category field, and no recurrence field. The only structured metadata beyond title and dates is status (needsAction/completed), parent (subtask linkage), tasklist membership, and notes (free text). This means priority, urgency, and semantic classification must all be inferred from title/notes text or tasklist name — they cannot be read directly.",
+      "confidence": "high"
+    },
+    {
+      "source": "track 1 findings (Google Tasks API schema)",
+      "key_finding": "The 'due' field in Google Tasks carries date-only semantics (time part is always T00:00:00.000Z). It represents 'when the user wants this done' — not a hard external deadline. Per vault conventions, this maps to ⏳ (scheduled/intent) not 📅 (hard due date). Using 📅 for all Google Tasks due dates would pollute the 'Overdue' dashboard with items that were merely intended for a day, not hard-committed.",
+      "confidence": "high"
+    },
+    {
+      "source": "track 1 findings / track 2 findings",
+      "key_finding": "The 'notes' field in Google Tasks is an optional free-text string with no internal structure. It can contain anything from a URL to multi-line instructions. In the vault, tasks are single-line; multiline notes content must either be appended as a sub-bullet under the task or placed in a linked note. Short notes (<80 chars, no newlines) can be inlined as an annotation after the date marker using an em-dash separator.",
+      "confidence": "high"
+    },
+    {
+      "source": "track 2 findings (vault task conventions)",
+      "key_finding": "Vault deduplication has no built-in mechanism. The sync tool must embed the Google Task ID on the vault task line in a form that: (1) is invisible to the user reading the note, (2) does not break obsidian-tasks plugin query parsing, and (3) is reliably parsable by the sync tool on re-read. HTML comment syntax satisfies all three constraints: `<!-- gtask:{id} -->` is stripped from rendered Obsidian views, ignored by obsidian-tasks regex parsing, and trivially greppable.",
+      "confidence": "high"
+    },
+    {
+      "source": "track 2 findings (vault task conventions)",
+      "key_finding": "The vault has no inbox — tasks must be routed to their target note at insertion time. Two valid insertion targets exist for synced Google Tasks: (1) 00 Daily Plan/YYYY-MM-DD.md Top Priorities section for tasks that are due today or have no project affiliation, and (2) 20 Projects/<Name>/<Name>.md Work Plan section for tasks associated with a known project. The tasklist title is the primary signal for project routing.",
+      "confidence": "high"
+    },
+    {
+      "source": "track 1 findings / track 2 findings",
+      "key_finding": "Google Tasks supports subtasks via the 'parent' field (containing the parent task ID). The vault has no native subtask syntax for obsidian-tasks — the standard approach is indented task lines (two spaces + dash). When a synced task has a parent field, it should be inserted as an indented sub-bullet under the parent task line. This requires the parent task to already exist in the vault; if it does not, the subtask must be deferred or inserted at top level with a title prefix indicating the parent.",
+      "confidence": "medium"
+    },
+    {
+      "source": "track 2 findings (vault task conventions)",
+      "key_finding": "The vault's 'Overdue' dashboard query matches tasks with `due before today` (📅 marker). If Google Tasks 'due' dates are mapped to ⏳ (scheduled), past-due Google Tasks will NOT appear in the Overdue view — they will simply fall out of Today and This Week views. This is the correct behavior because Google Tasks due dates are soft intents, not hard commitments. The sync tool should NOT attempt to map Google Tasks to the Overdue dashboard.",
+      "confidence": "high"
+    },
+    {
+      "source": "track 2 findings (vault task conventions)",
+      "key_finding": "Completed Google Tasks (status=completed) carry a 'completed' timestamp in RFC 3339 format. The vault's completion format is `✅ YYYY-MM-DD` appended to the task line, and the checkbox state changes to [x]. The sync tool can map completed tasks directly: status=completed → [x], completed timestamp → ✅ date. Deleted tasks (deleted=true) should map to [-] (dropped state) rather than physical deletion from the vault, to preserve audit trail.",
+      "confidence": "high"
+    },
+    {
+      "source": "track 1 findings (Google Tasks API schema)",
+      "key_finding": "The 'links' array in a Task resource contains related links (e.g., links from Google Docs or Google Chat where the task was created). These are structured as {type, description, link}. For tasks created by Gemini on phone, this array may contain source context. The sync tool should serialize any links as sub-bullets under the task line (e.g., `  - [source link description](url)`) to preserve provenance.",
+      "confidence": "medium"
+    },
+    {
+      "source": "track 2 findings (vault task conventions)",
+      "key_finding": "Priority assignment from Google Tasks is fully heuristic. The recommended default is 🔼 (medium/should-do). Heuristics that can justify upgrading to ⏫: title contains words like 'urgent', 'ASAP', 'critical', 'today', 'EOD', 'deadline'; or the task is due today and it is already past 10am. Heuristics for downgrading to 🔽: title contains 'maybe', 'someday', 'low priority', 'nice to have', 'if time'; or the task has no due date and the tasklist is named something like 'Ideas' or 'Someday'.",
+      "confidence": "medium"
+    }
+  ],
+  "mapping_table": [
+    {
+      "google_task_field": "id",
+      "vault_output": "HTML comment embedded at end of task line: `<!-- gtask:{id} -->`",
+      "rule_type": "deterministic",
+      "notes": "Used exclusively for deduplication on re-sync. Never displayed. Greppable by sync tool."
+    },
+    {
+      "google_task_field": "title",
+      "vault_output": "Description text in task line (after priority marker)",
+      "rule_type": "deterministic (text); heuristic (priority inference from keywords)",
+      "notes": "Title text is used verbatim. Priority is inferred from keyword scan of title. See priority_heuristics section."
+    },
+    {
+      "google_task_field": "status",
+      "vault_output": "Checkbox state: needsAction → [ ]; completed → [x]",
+      "rule_type": "deterministic",
+      "notes": "On status change from needsAction to completed on re-sync, change [ ] to [x] and append ✅ date."
+    },
+    {
+      "google_task_field": "due",
+      "vault_output": "⏳ YYYY-MM-DD (scheduled date marker + ISO date)",
+      "rule_type": "deterministic (marker type = ⏳); heuristic (📅 upgrade if title signals hard deadline)",
+      "notes": "Due is always date-only intent, maps to ⏳ by default. Override to 📅 only if title/notes contain hard-deadline keywords. If absent, use #someday tag with no date."
+    },
+    {
+      "google_task_field": "notes",
+      "vault_output": "Short (<80 chars, no newlines): inline annotation after date as ` — {notes}`. Long or multiline: sub-bullet `  - {notes}` on next line(s).",
+      "rule_type": "heuristic",
+      "notes": "Length and newline presence determine placement. URLs in notes become markdown links in sub-bullets."
+    },
+    {
+      "google_task_field": "completed",
+      "vault_output": "✅ YYYY-MM-DD appended to task line (date extracted from RFC 3339 timestamp)",
+      "rule_type": "deterministic",
+      "notes": "Only present when status=completed. Extract YYYY-MM-DD from the RFC 3339 value."
+    },
+    {
+      "google_task_field": "updated",
+      "vault_output": "Not rendered in task line. Stored in sync state as last-known-updated timestamp for change detection.",
+      "rule_type": "deterministic (ignored for display)",
+      "notes": "Used by poller to detect changes since last sync. Not a user-visible field."
+    },
+    {
+      "google_task_field": "deleted",
+      "vault_output": "Checkbox state → [-] (dropped). Task line preserved in vault.",
+      "rule_type": "deterministic",
+      "notes": "Physical deletion from vault is avoided — [-] preserves audit trail. If the task was already [x], no state change needed."
+    },
+    {
+      "google_task_field": "hidden",
+      "vault_output": "If hidden=true and status=needsAction: treat as #someday (no date, add #someday tag).",
+      "rule_type": "heuristic",
+      "notes": "Hidden tasks are typically completed subtasks or suppressed by Google's own UI. Adding #someday is a reasonable proxy for 'not currently actionable'."
+    },
+    {
+      "google_task_field": "parent",
+      "vault_output": "Indented sub-task under parent task line: `  - [ ] 🔼 {title} ⏳ {date} <!-- gtask:{id} -->`",
+      "rule_type": "heuristic",
+      "notes": "Requires parent task to already exist in vault. If parent not found, insert at top level with title prefix `[{parent_title}] {title}`. Parent lookup uses <!-- gtask:{parent_id} --> grep."
+    },
+    {
+      "google_task_field": "tasklist.title",
+      "vault_output": "Routing signal: matches to project note path or defaults to daily note. Also optionally appended as #tag if no project match.",
+      "rule_type": "heuristic",
+      "notes": "See routing algorithm section. 'My Tasks' → daily note. Named lists → attempt project match. No tag is added if routed to project note (redundant). Tag added only if routing to daily note and list name is meaningful."
+    },
+    {
+      "google_task_field": "links[]",
+      "vault_output": "Sub-bullets under task: `  - [{description}]({link})`",
+      "rule_type": "deterministic (if links present)",
+      "notes": "Links array is typically empty for phone-created tasks. When present, render as markdown links in sub-bullets."
+    },
+    {
+      "google_task_field": "position",
+      "vault_output": "Ignored — vault tasks have no position field.",
+      "rule_type": "ignored",
+      "notes": "Position controls order within Google Tasks UI. Vault insertion order within a section serves this purpose."
+    },
+    {
+      "google_task_field": "etag",
+      "vault_output": "Ignored — used only by sync tool for cache validation (If-None-Match).",
+      "rule_type": "ignored (sync metadata only)",
+      "notes": "Not stored in vault."
+    },
+    {
+      "google_task_field": "selfLink",
+      "vault_output": "Ignored.",
+      "rule_type": "ignored",
+      "notes": "webViewLink is preferred if a link is needed; selfLink is an API URL not a user-facing link."
+    },
+    {
+      "google_task_field": "webViewLink",
+      "vault_output": "Optional: sub-bullet `  - [View in Google Tasks]({webViewLink})` — only if sync config has include_source_links=true.",
+      "rule_type": "heuristic (configurable)",
+      "notes": "Adds provenance link. Disabled by default to keep task lines clean."
+    }
+  ],
+  "priority_heuristics": {
+    "default": "🔼 (medium/should-do)",
+    "upgrade_to_high": [
+      "Title contains: urgent, ASAP, critical, immediately, EOD, by today, deadline, must, need to",
+      "Due date is today AND current time is past 10:00 AM local"
+    ],
+    "downgrade_to_low": [
+      "Title contains: maybe, someday, low priority, nice to have, if time, eventually, consider, idea",
+      "Tasklist name contains: Ideas, Someday, Maybe, Backlog, Later"
+    ],
+    "someday_instead_of_dated": [
+      "No due date AND title contains: someday, maybe, idea, consider, eventually",
+      "No due date AND tasklist name is 'Ideas', 'Someday', or 'Maybe'"
+    ]
+  },
+  "routing_algorithm": {
+    "description": "Two-branch routing decision made at insertion time. No inbox exists — target must be resolved before writing.",
+    "inputs": ["tasklist.title", "due date", "title text", "known project list from vault"],
+    "steps": [
+      {
+        "step": 1,
+        "name": "Check for project match",
+        "logic": "Normalize tasklist.title: lowercase, strip spaces/punctuation. Compare against known project folder names in 20 Projects/. If exact or fuzzy match found (>=80% similarity), route to 20 Projects/{MatchedName}/{MatchedName}.md, Work Plan section.",
+        "on_match": "Route to project note → done",
+        "on_no_match": "Proceed to step 2"
+      },
+      {
+        "step": 2,
+        "name": "Check tasklist name for daily vs. someday signal",
+        "logic": "If tasklist.title is 'My Tasks' or 'Personal' or similar generic name: proceed to step 3. If tasklist name matches a someday/ideas pattern (see priority_heuristics): set #someday, no date, route to daily note (appended to Someday section if it exists, else Top Priorities).",
+        "on_match": "Route to daily note with #someday tag → done",
+        "on_no_match": "Proceed to step 3"
+      },
+      {
+        "step": 3,
+        "name": "Route to daily note by due date",
+        "logic": "If task has a due date: route to daily note for that date (00 Daily Plan/{due_date}.md). If that note does not exist, create it from the Daily Note template. Insert under Top Priorities section. If task has no due date: route to today's daily note under Top Priorities with #someday tag and no date marker.",
+        "on_match": "Route to dated or today's daily note → done"
+      }
+    ],
+    "section_insertion_rules": {
+      "daily_note_top_priorities": "Append new task as next line in the Top Priorities checkbox list. If section is missing, append a ## Top Priorities section at the end.",
+      "project_work_plan": "Append under ## Work Plan section. If Work Plan section is missing, append it. Use ⏳ date.",
+      "subtask_placement": "Subtask inserted immediately after its parent task line, indented two spaces."
+    }
+  },
+  "vault_task_line_format": {
+    "canonical": "- [{STATE}] {PRIORITY} {title} {DATE_MARKER} {YYYY-MM-DD} <!-- gtask:{id} -->",
+    "with_notes_inline": "- [{STATE}] {PRIORITY} {title} {DATE_MARKER} {YYYY-MM-DD} — {short_notes} <!-- gtask:{id} -->",
+    "completed": "- [x] {PRIORITY} {title} {DATE_MARKER} {YYYY-MM-DD} ✅ {completion_YYYY-MM-DD} <!-- gtask:{id} -->",
+    "no_date_someday": "- [ ] 🔽 {title} #someday <!-- gtask:{id} -->",
+    "subtask": "  - [ ] 🔼 {title} ⏳ {YYYY-MM-DD} <!-- gtask:{id} -->",
+    "with_notes_sub_bullet": "- [{STATE}] {PRIORITY} {title} {DATE_MARKER} {YYYY-MM-DD} <!-- gtask:{id} -->\n  - {notes_line_1}\n  - {notes_line_2}",
+    "examples": [
+      "- [ ] 🔼 Draft quarterly review slides ⏳ 2026-04-07 <!-- gtask:MTYwOTc4NzE5MzA0NzQ5NTA2OA -->",
+      "- [x] 🔼 Send budget summary to finance ⏳ 2026-04-03 ✅ 2026-04-03 <!-- gtask:MTYwOTc4NzE5MzA0NzQ5NTA4Ng -->",
+      "- [ ] 🔽 Read new architecture RFC #someday <!-- gtask:MTYwOTc4NzE5MzA0NzQ5NTEwNA -->",
+      "- [ ] ⏫ Submit expense report by EOD ⏳ 2026-04-05 <!-- gtask:MTYwOTc4NzE5MzA0NzQ5NTEyMg -->"
+    ],
+    "deduplication_lookup": "grep '<!-- gtask:{id} -->' across all vault note paths to find existing task line before inserting. If found: update in place (state change, date change, etc.). If not found: insert at computed target location."
+  },
+  "ambiguity_inventory": [
+    {
+      "case": "Priority assignment",
+      "description": "Google Tasks has no priority field. All priority assignments for vault tasks are inferred from title/notes keywords or defaulted to 🔼. A task titled 'Buy milk' and a task titled 'Prepare board presentation' both arrive with no priority signal.",
+      "severity": "medium",
+      "recommended_resolution": "Default all synced tasks to 🔼. User performs a priority pass during /plan-today or morning triage. Optionally, allow user-configured keyword lists for ⏫/🔽 detection.",
+      "deterministic": false
+    },
+    {
+      "case": "Due date semantics: scheduled intent vs. hard deadline",
+      "description": "Google Tasks 'due' field means 'I want this done by this date' — user intent, not a contractual deadline. The vault distinguishes ⏳ (intent) from 📅 (hard deadline). There is no field in Google Tasks to signal which applies.",
+      "severity": "high",
+      "recommended_resolution": "Always map to ⏳ by default. Upgrade to 📅 only if title/notes contains explicit hard-deadline keywords (deadline, due, EOD, by [date], etc.). Document this rule so users understand they can add such keywords in Google Tasks to force 📅 mapping.",
+      "deterministic": false
+    },
+    {
+      "case": "Target note routing when tasklist name does not match any project",
+      "description": "A tasklist named 'Work' or 'Home' does not map to a specific project note. The sync tool must decide between daily note insertion and creating a new project note.",
+      "severity": "medium",
+      "recommended_resolution": "Non-matching non-generic tasklist names → route to daily note AND append a list-name tag (e.g., #work, #home) to the task line for later filtering. Do not auto-create project notes from tasklist names.",
+      "deterministic": false
+    },
+    {
+      "case": "Subtask with missing parent",
+      "description": "A Google Task with parent={id} arrives but the parent task line is not in the vault (not yet synced, or was deleted from vault). Indentation under a non-existent line is not possible.",
+      "severity": "medium",
+      "recommended_resolution": "On parent-not-found: insert subtask at top level with title prefix '[Subtask] {title}' and log a warning. On next sync pass, if parent is found, re-insert correctly indented (requires removing and re-inserting the subtask line).",
+      "deterministic": false
+    },
+    {
+      "case": "Notes field length and content type",
+      "description": "The 'notes' field could be empty, a short sentence, a URL, a multi-paragraph block, or structured text (e.g., a checklist). The vault task line is single-line; long notes break the task line format.",
+      "severity": "medium",
+      "recommended_resolution": "Length threshold: <=80 chars and no newlines → inline annotation with em-dash. Otherwise → sub-bullets. URLs → markdown link sub-bullets. Structured content (multiple newlines) → multiple sub-bullets, one per paragraph.",
+      "deterministic": false
+    },
+    {
+      "case": "Task with no due date and no project affiliation",
+      "description": "A Google Task with no due date and tasklist='My Tasks' has no routing signal. It is not clearly a someday task or a today task.",
+      "severity": "high",
+      "recommended_resolution": "Default behavior: route to today's daily note with 🔽 priority and #someday tag (no date marker). This ensures the task is captured but does not pollute the Today or This Week dashboard views. User can remove #someday and add a date to activate it.",
+      "deterministic": false
+    },
+    {
+      "case": "Re-sync update conflicts (vault task was manually edited)",
+      "description": "User manually edits the priority, date, or state of a vault task after sync. On next sync, the Google Task has the same 'updated' timestamp but the vault version differs. Which wins?",
+      "severity": "high",
+      "recommended_resolution": "Vault wins for state, priority, and date fields (treat vault as the working copy). Only sync Google Tasks changes that affect title or notes text — these are harder to edit in vault. Flag conflicts where Google Tasks 'updated' timestamp is newer than the vault task's last-sync timestamp.",
+      "deterministic": false
+    },
+    {
+      "case": "Completed task re-opened in Google Tasks",
+      "description": "A task was synced as [x] in vault. User re-opens it in Google Tasks (status returns to needsAction). Should the vault task revert from [x] to [ ]?",
+      "severity": "medium",
+      "recommended_resolution": "Yes — on re-sync, if status=needsAction and vault has [x], revert to [ ] and remove ✅ date. This is the correct bidirectional behavior. However, if the vault task has been moved or the completion date is more than N days ago, emit a warning instead of reverting silently.",
+      "deterministic": false
+    },
+    {
+      "case": "Multiple tasks with identical titles across different lists",
+      "description": "User creates 'Review PR' in both 'Work' and 'Personal' lists. Deduplication is by Google Task ID (<!-- gtask:{id} -->), so these are distinct — but the sync tool must not confuse them during lookup.",
+      "severity": "low",
+      "recommended_resolution": "ID-based deduplication handles this correctly as long as IDs are always used for lookup. Never deduplicate by title alone.",
+      "deterministic": true
+    },
+    {
+      "case": "Gemini-created tasks may appear in a dedicated 'Gemini' tasklist",
+      "description": "Track 1 findings note uncertainty about whether Gemini creates tasks in 'My Tasks' or a dedicated list. If a dedicated list exists, tasklist routing logic must handle it.",
+      "severity": "low",
+      "recommended_resolution": "Treat any unknown tasklist name as a routing-to-daily-note-with-list-tag scenario. Add the tasklist name as a normalized hashtag (e.g., #gemini). This future-proofs for any new Gemini task list names.",
+      "deterministic": false
+    }
+  ],
+  "gaps": [
+    "Priority inference from title keywords requires a curated keyword list; the current heuristics are illustrative, not exhaustive. A production implementation needs a configurable keyword dictionary.",
+    "Project matching (tasklist name → vault project folder) requires the sync tool to have a live index of 20 Projects/ folder names. This index must be refreshed if new projects are created. The match algorithm (fuzzy vs. exact) needs a defined threshold.",
+    "The vault has no template for auto-creating a missing daily note from the sync tool. The Daily Note template uses Templater syntax; the sync tool would need to either call Obsidian via URI scheme or replicate the template expansion logic in Python.",
+    "Subtask re-parenting on vault side (when parent arrives after child) requires a two-pass sync or a deferred queue. The current algorithm does not specify how to handle out-of-order arrival.",
+    "The conflict resolution rule ('vault wins') is a policy decision that needs user confirmation. Some users may prefer 'Google Tasks wins' for title/notes fields if they exclusively edit tasks on their phone.",
+    "No vault field captures the originating tasklist name for audit purposes. If the list name is used only for routing, provenance is lost after insertion. Consider embedding it as a tag or annotation.",
+    "The 'hidden' field behavior is under-specified in Google's API docs. Whether hidden=true tasks should be synced at all (vs. filtered out) is not determined."
+  ],
+  "delta_queries": [
+    "Confirm whether Gemini on Android/iOS creates tasks in 'My Tasks' or a dedicated 'Gemini' tasklist — requires live test with the Google Tasks MCP tools_list_tasks call on all tasklists",
+    "Test obsidian-tasks plugin parsing: verify that `<!-- gtask:{id} -->` in a task line does not interfere with scheduled/due date parsing or tag detection (create a test note with this format and check dashboard queries)",
+    "Confirm vault project folder name list: vault_search path='20 Projects' to enumerate existing project names for routing table",
+    "Determine if a Daily Note template expansion can be triggered programmatically (via Obsidian URI scheme templater://create or vault_write with pre-expanded template content)",
+    "Check obsidian-tasks docs for whether inline HTML comments are stripped before parsing or whether the full line text is parsed — this affects whether <!-- gtask:... --> could accidentally match a date pattern",
+    "Verify the maximum length of a Google Task 'notes' field to set a reliable inline vs. sub-bullet threshold"
+  ]
+}

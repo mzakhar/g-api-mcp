@@ -1,0 +1,72 @@
+{
+  "track_id": 5,
+  "track_name": "Validation approach",
+  "summary": [
+    "The existing g-api-mcp test suite uses pytest + pytest-asyncio with service-level mocks (unittest.mock.MagicMock patching _tasks_service/_gmail_service/_calendar_service) — no real network calls, credentials, or filesystem access required in any test.",
+    "Three distinct validation layers are needed: (1) unit tests for the transformation function (Google Task dict → Obsidian Tasks plugin markdown string), (2) integration tests for change detection logic (etag/updatedMin diffing against mock API), and (3) an end-to-end smoke test that wires a fake Google Tasks fixture through the full sync pipeline and asserts the vault file contains expected task lines.",
+    "Obsidian Tasks plugin format for a task line is: `- [ ] Task title 📅 YYYY-MM-DD` for incomplete tasks and `- [x] Task title ✅ YYYY-MM-DD` for completed, with optional emoji-keyed metadata fields (🔁 recurrence, ⏫/🔼/🔽 priority, 🆔 id, ⛔ blocked-by).",
+    "The test harness should be driven by a JSON corpus file containing (input: Google Task API dict, expected_output: markdown string) pairs — this enables both parametrized pytest coverage and a human-reviewable golden-file audit trail.",
+    "Post-sync cleanup (removing stale tasks from the vault that were deleted from Google Tasks) is best validated with a 'ghost task' fixture: write a task line into the vault that has no corresponding Google Task ID, run sync, assert the line is absent afterward."
+  ],
+  "findings": [
+    {
+      "source": "C:/EpicSource/Projects/g-api-mcp/tests/test_tasks.py",
+      "key_finding": "All task tool tests use a make_task() fixture factory that builds a Google Tasks API dict with controlled field values. Service calls are mocked with patch.object(tasks_module, '_tasks_service', return_value=service) and asyncio.to_thread is patched to be synchronous. This pattern is fully reusable for a sync pipeline test: replace the tool handler under test with a transformer function, keep the same mock service pattern.",
+      "confidence": "high"
+    },
+    {
+      "source": "C:/EpicSource/Projects/g-api-mcp/tests/test_tasks.py",
+      "key_finding": "The make_task() factory covers: task with/without notes, with/without due date, with/without parent (subtask), with/without links, and status=needsAction vs completed. These map directly to Obsidian Tasks format edge cases: subtasks need indentation, completed tasks need the ✅ date stamp, tasks without due dates omit the 📅 field.",
+      "confidence": "high"
+    },
+    {
+      "source": "C:/EpicSource/Projects/g-api-mcp/src/g_api_mcp/tasks.py",
+      "key_finding": "The _to_thin_task() and _to_full_task() helper functions are the natural seam for a transformation layer. A vault_sync module would add a third helper, _to_vault_line(task: dict) -> str, which converts a full task dict to an Obsidian Tasks plugin markdown line. Unit tests for this helper follow the exact same pattern as the existing test_to_thin_task_* and test_to_full_task_* tests at the bottom of test_tasks.py.",
+      "confidence": "high"
+    },
+    {
+      "source": "C:/EpicSource/Projects/g-api-mcp/tests/test_envelope.py",
+      "key_finding": "The envelope tests demonstrate the project's preferred style for pure-function unit tests: no mocks, direct import of the module under test, parametric assertions. The _to_vault_line() transformer should be tested the same way — pure function, no I/O, deterministic string output. This makes the test corpus trivially parametrizable with @pytest.mark.parametrize.",
+      "confidence": "high"
+    },
+    {
+      "source": "C:/EpicSource/Projects/g-api-mcp/pyproject.toml",
+      "key_finding": "The project uses pytest>=8.0 and pytest-asyncio>=0.23 with asyncio_mode='auto'. Adding pytest-tmp-path (built into pytest) gives isolated temp directories for vault file I/O tests without requiring the real Obsidian vault. No new test dependencies are needed.",
+      "confidence": "high"
+    },
+    {
+      "source": "C:/EpicSource/Projects/g-api-mcp/tests/test_tasks.py (inferred)",
+      "key_finding": "Change detection in a sync pipeline typically uses the Google Tasks API's updatedMin parameter (RFC 3339 datetime) to fetch only tasks modified since the last sync. The test for this should mock service.tasks().list() to return a controlled set of tasks, then assert that (a) only tasks with updated > last_sync_time are processed and (b) the updatedMin kwarg is passed correctly — mirroring the existing test_list_tasks_show_completed_false_by_default pattern which inspects call_args.kwargs.",
+      "confidence": "high"
+    },
+    {
+      "source": "Obsidian Tasks plugin documentation (knowledge synthesis)",
+      "key_finding": "The Obsidian Tasks plugin parses task lines using a strict emoji-based format. A valid incomplete task: '- [ ] Task title 📅 2026-04-10'. A valid completed task: '- [x] Task title ✅ 2026-04-10'. Priority is encoded as ⏫ (highest), 🔼 (high), 🔽 (low). Subtasks are represented by indenting the child task line with two spaces under the parent. The plugin reads these from any .md file in the vault — the sync writer only needs to produce correctly-formatted lines.",
+      "confidence": "medium"
+    },
+    {
+      "source": "Obsidian Tasks plugin documentation (knowledge synthesis)",
+      "key_finding": "For scoring/comparison of vault task output, field-by-field diff is more robust than exact string match because emoji byte order and trailing whitespace can vary. The recommended approach: parse the output line with a regex that captures checkbox state, title, and each emoji-keyed date field separately, then assert each field independently. This mirrors how the existing tests assert individual fields of the JSON envelope rather than asserting the full JSON string.",
+      "confidence": "medium"
+    },
+    {
+      "source": "C:/EpicSource/Projects/g-api-mcp/tests/ (pattern synthesis)",
+      "key_finding": "An end-to-end smoke test should: (1) write a corpus of 5-10 Google Task dicts to a mock/fixture, (2) call the sync function with a tmp_path vault directory, (3) read the written .md file(s) back and parse task lines, (4) assert each expected task appears with correct fields. The test should be marked @pytest.mark.asyncio and use the same patch.object service mock pattern. Human review is only needed to verify the initial expected_output strings in the corpus are correct — after that, the test is fully automated.",
+      "confidence": "high"
+    }
+  ],
+  "gaps": [
+    "The Obsidian Tasks plugin's exact regex/parser for reading task lines is not pinned to a specific version — the emoji format has been stable since v1.0 but future plugin versions could add new fields. The test corpus should be versioned alongside the plugin version used.",
+    "The sync pipeline module (vault_sync.py or similar) does not yet exist in g-api-mcp — all validation plan items assume it will be added. The test harness design depends on where the transformation and change-detection logic is placed (same package vs. separate script).",
+    "Conflict resolution is not addressed: if a task is edited both in Google Tasks and in the vault between syncs, the correct behavior (Google wins? vault wins? flag conflict?) needs a spec before tests can be written for it.",
+    "The Obsidian Tasks plugin's handling of tasks that span multiple lists (the Google Tasks concept of 'tasklists') is not defined — the test corpus should include tasks from multiple lists to verify the sync correctly namespaces them (e.g., different vault files or frontmatter tags).",
+    "Rate limiting and quota exhaustion in the Google Tasks API are not covered by the existing test infrastructure — the mock pattern bypasses HTTP entirely. A separate slow/integration test tier with a real (test) Google account would be needed for quota behavior validation."
+  ],
+  "delta_queries": [
+    "Search for Obsidian Tasks plugin source or test files on GitHub (obsidian-tasks-group/obsidian-tasks) to extract the exact regex used to parse task lines — this becomes the ground truth for the test corpus expected_output format",
+    "Check whether the Google Tasks API supports ETags for individual tasks (for efficient change detection at the task level, not just list level) — this affects the change-detection test design",
+    "Search for existing Python libraries that parse Obsidian Tasks plugin format (e.g., 'obsidian-tasks-python', 'obsidian-dataview') that could serve as the comparison oracle in tests rather than hand-rolled regex",
+    "Review the Obsidian Tasks plugin 'Global Query' and 'Short Mode' settings to determine whether vault task lines need any frontmatter or file-level tags to be recognized by the plugin",
+    "Investigate whether pytest-snapshot (snapshot testing library) is a better fit than hand-coded expected strings for the vault output corpus — snapshot tests allow one-command baseline capture and diff-on-failure reporting"
+  ]
+}
