@@ -300,13 +300,11 @@ async def test_gmail_delete_label_success():
 @pytest.mark.asyncio
 async def test_gmail_delete_label_not_found_returns_error():
     from googleapiclient.errors import HttpError
-    from unittest.mock import MagicMock as MM
-    import json as _json
 
-    resp = MM()
+    resp = MagicMock()
     resp.status = 404
     resp.reason = "Not Found"
-    err = HttpError(resp=resp, content=_json.dumps({"error": {"message": "Label not found", "code": 404}}).encode())
+    err = HttpError(resp=resp, content=json.dumps({"error": {"message": "Label not found", "code": 404}}).encode())
 
     service = MagicMock()
     service.users().labels().delete().execute.side_effect = err
@@ -343,13 +341,11 @@ async def test_gmail_delete_filter_success():
 @pytest.mark.asyncio
 async def test_gmail_delete_filter_not_found_returns_error():
     from googleapiclient.errors import HttpError
-    from unittest.mock import MagicMock as MM
-    import json as _json
 
-    resp = MM()
+    resp = MagicMock()
     resp.status = 404
     resp.reason = "Not Found"
-    err = HttpError(resp=resp, content=_json.dumps({"error": {"message": "Filter not found", "code": 404}}).encode())
+    err = HttpError(resp=resp, content=json.dumps({"error": {"message": "Filter not found", "code": 404}}).encode())
 
     service = MagicMock()
     service.users().settings().filters().delete().execute.side_effect = err
