@@ -8,8 +8,10 @@ gmail_get_message     — full content for one message
 gmail_send_message    — compose and send
 gmail_create_draft    — save to Drafts
 gmail_list_labels     — all labels for the account
+gmail_create_label    — create a new label (supports nested 'Parent/Child' names)
 gmail_delete_label    — delete a label by ID (does not delete its messages)
 gmail_list_filters    — all Gmail inbox filters for the account
+gmail_create_filter   — create a filter to auto-label incoming messages
 gmail_delete_filter   — delete a filter by ID
 gmail_modify_message  — add/remove labels (mark read, star, etc.)
 gmail_bulk_modify     — add/remove labels on multiple messages at once
@@ -511,6 +513,107 @@ async def gmail_list_filters() -> str:
 
     filters = result.get("filter", [])
     env = build_envelope(data=filters, result_count=len(filters), has_more=False)
+    return json.dumps(env)
+
+
+@mcp.tool()
+async def gmail_create_label(
+    name: str,
+    message_list_visibility: str = "show",
+    label_list_visibility: str = "labelShow",
+) -> str:
+    """Create a new Gmail label.
+    Nested labels use '/' in the name, e.g. 'Newsletters/AI'.
+    The parent label must already exist for nesting to display correctly in Gmail.
+
+    Args:
+        name: Label name. Use '/' for hierarchy, e.g. 'Newsletters/AI'.
+        message_list_visibility: 'show' (default) or 'hide' — whether messages with
+            this label appear in message list.
+        label_list_visibility: 'labelShow' (default), 'labelShowIfUnread', or
+            'labelHide' — how the label appears in the label list.
+    """
+    body = {
+        "name": name,
+        "messageListVisibility": message_list_visibility,
+        "labelListVisibility": label_list_visibility,
+    }
+    try:
+        service = await _gmail_service()
+        result = await asyncio.to_thread(
+            lambda: service.users().labels().create(userId="me", body=body).execute()
+        )
+    except HttpError as e:
+        return error_envelope(_http_error_message(e))
+    except RuntimeError as e:
+        return error_envelope(str(e))
+
+    label = {"id": result["id"], "name": result["name"], "type": result.get("type", "user")}
+    env = build_envelope(data=label, is_list=False)
+    return json.dumps(env)
+
+
+@mcp.tool()
+async def gmail_create_filter(
+    add_label_ids: list[str],
+    from_: str | None = None,
+    to: str | None = None,
+    subject: str | None = None,
+    query: str | None = None,
+    has_attachment: bool | None = None,
+    remove_label_ids: list[str] | None = None,
+) -> str:
+    """Create a Gmail filter that automatically labels incoming messages.
+    At least one criteria field must be provided (from_, to, subject, query, or has_attachment).
+    At least one label ID must be in add_label_ids.
+
+    Use gmail_list_labels to get label IDs before calling this.
+
+    Args:
+        add_label_ids: Label IDs to apply when filter matches. Required.
+        from_: Sender address or domain to match, e.g. 'dan@tldrnewsletter.com'.
+            For multiple senders, use query instead: 'from:(a@x.com OR b@y.com)'.
+        to: Recipient address to match.
+        subject: Subject string to match.
+        query: Full Gmail search query, e.g. 'from:(a@x.com OR b@y.com) subject:alert'.
+            Can be combined with from_/to/subject; all set fields are ANDed together.
+        has_attachment: If True, only match messages with attachments.
+        remove_label_ids: Label IDs to remove when filter matches, e.g. ['INBOX'] to
+            skip the inbox, or ['UNREAD'] to auto-mark as read.
+    """
+    criteria: dict[str, Any] = {}
+    if from_:
+        criteria["from"] = from_
+    if to:
+        criteria["to"] = to
+    if subject:
+        criteria["subject"] = subject
+    if query:
+        criteria["query"] = query
+    if has_attachment is not None:
+        criteria["hasAttachment"] = has_attachment
+
+    if not criteria:
+        raise ToolError("Provide at least one criteria field: from_, to, subject, query, or has_attachment.")
+    if not add_label_ids:
+        raise ToolError("add_label_ids must not be empty.")
+
+    action: dict[str, Any] = {"addLabelIds": add_label_ids}
+    if remove_label_ids:
+        action["removeLabelIds"] = remove_label_ids
+
+    body = {"criteria": criteria, "action": action}
+    try:
+        service = await _gmail_service()
+        result = await asyncio.to_thread(
+            lambda: service.users().settings().filters().create(userId="me", body=body).execute()
+        )
+    except HttpError as e:
+        return error_envelope(_http_error_message(e))
+    except RuntimeError as e:
+        return error_envelope(str(e))
+
+    env = build_envelope(data=result, is_list=False)
     return json.dumps(env)
 
 
