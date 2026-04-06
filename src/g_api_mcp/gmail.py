@@ -8,7 +8,9 @@ gmail_get_message     — full content for one message
 gmail_send_message    — compose and send
 gmail_create_draft    — save to Drafts
 gmail_list_labels     — all labels for the account
+gmail_delete_label    — delete a label by ID (does not delete its messages)
 gmail_list_filters    — all Gmail inbox filters for the account
+gmail_delete_filter   — delete a filter by ID
 gmail_modify_message  — add/remove labels (mark read, star, etc.)
 gmail_bulk_modify     — add/remove labels on multiple messages at once
 gmail_get_attachment  — download an attachment to a local path
@@ -466,6 +468,31 @@ async def gmail_list_labels() -> str:
 
 
 @mcp.tool()
+async def gmail_delete_label(label_id: str) -> str:
+    """Delete a Gmail label by ID.
+    The label is removed from all messages that carried it, but the messages themselves
+    are not deleted. System labels (INBOX, SENT, etc.) cannot be deleted.
+
+    Use gmail_list_labels to find label IDs.
+
+    Args:
+        label_id: The label ID to delete, e.g. 'Label_47'.
+    """
+    try:
+        service = await _gmail_service()
+        await asyncio.to_thread(
+            lambda: service.users().labels().delete(userId="me", id=label_id).execute()
+        )
+    except HttpError as e:
+        return error_envelope(_http_error_message(e))
+    except RuntimeError as e:
+        return error_envelope(str(e))
+
+    env = build_envelope(data={"deleted_label_id": label_id}, is_list=False)
+    return json.dumps(env)
+
+
+@mcp.tool()
 async def gmail_list_filters() -> str:
     """Return all Gmail inbox filters for this account.
     Each filter includes criteria (from, to, subject, query, hasAttachment, etc.)
@@ -484,6 +511,32 @@ async def gmail_list_filters() -> str:
 
     filters = result.get("filter", [])
     env = build_envelope(data=filters, result_count=len(filters), has_more=False)
+    return json.dumps(env)
+
+
+@mcp.tool()
+async def gmail_delete_filter(filter_id: str) -> str:
+    """Delete a Gmail inbox filter by ID.
+    The filter is removed immediately; existing messages are not affected.
+
+    Use gmail_list_filters to find filter IDs.
+
+    Args:
+        filter_id: The filter ID to delete, e.g. 'ANe1BmjHY47vZqni...'.
+    """
+    try:
+        service = await _gmail_service()
+        await asyncio.to_thread(
+            lambda: service.users().settings().filters().delete(
+                userId="me", id=filter_id
+            ).execute()
+        )
+    except HttpError as e:
+        return error_envelope(_http_error_message(e))
+    except RuntimeError as e:
+        return error_envelope(str(e))
+
+    env = build_envelope(data={"deleted_filter_id": filter_id}, is_list=False)
     return json.dumps(env)
 
 

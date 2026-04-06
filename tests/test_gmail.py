@@ -278,6 +278,92 @@ async def test_gmail_list_labels():
 
 
 # ---------------------------------------------------------------------------
+# gmail_delete_label
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gmail_delete_label_success():
+    service = MagicMock()
+    service.users().labels().delete().execute.return_value = None  # 204 no body
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        result = await gmail_module.gmail_delete_label(label_id="Label_47")
+
+    env = json.loads(result)
+    assert env["success"] is True
+    assert env["data"]["deleted_label_id"] == "Label_47"
+    assert env["pagination"] is None
+
+
+@pytest.mark.asyncio
+async def test_gmail_delete_label_not_found_returns_error():
+    from googleapiclient.errors import HttpError
+    from unittest.mock import MagicMock as MM
+    import json as _json
+
+    resp = MM()
+    resp.status = 404
+    resp.reason = "Not Found"
+    err = HttpError(resp=resp, content=_json.dumps({"error": {"message": "Label not found", "code": 404}}).encode())
+
+    service = MagicMock()
+    service.users().labels().delete().execute.side_effect = err
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        result = await gmail_module.gmail_delete_label(label_id="Label_999")
+
+    env = json.loads(result)
+    assert env["success"] is False
+    assert env["error"] is not None
+
+
+# ---------------------------------------------------------------------------
+# gmail_delete_filter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gmail_delete_filter_success():
+    service = MagicMock()
+    service.users().settings().filters().delete().execute.return_value = None  # 204 no body
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        result = await gmail_module.gmail_delete_filter(filter_id="ANe1BmjHY47vZqni")
+
+    env = json.loads(result)
+    assert env["success"] is True
+    assert env["data"]["deleted_filter_id"] == "ANe1BmjHY47vZqni"
+    assert env["pagination"] is None
+
+
+@pytest.mark.asyncio
+async def test_gmail_delete_filter_not_found_returns_error():
+    from googleapiclient.errors import HttpError
+    from unittest.mock import MagicMock as MM
+    import json as _json
+
+    resp = MM()
+    resp.status = 404
+    resp.reason = "Not Found"
+    err = HttpError(resp=resp, content=_json.dumps({"error": {"message": "Filter not found", "code": 404}}).encode())
+
+    service = MagicMock()
+    service.users().settings().filters().delete().execute.side_effect = err
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        result = await gmail_module.gmail_delete_filter(filter_id="nonexistent")
+
+    env = json.loads(result)
+    assert env["success"] is False
+    assert env["error"] is not None
+
+
+# ---------------------------------------------------------------------------
 # gmail_modify_message
 # ---------------------------------------------------------------------------
 
