@@ -487,3 +487,353 @@ def test_extract_attachments():
     assert attachments[0]["filename"] == "report.pdf"
     assert attachments[0]["attachment_id"] == "att_abc"
     assert attachments[0]["size_bytes"] == 204800
+
+
+# ---------------------------------------------------------------------------
+# gmail_list_filters
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gmail_list_filters_returns_filters():
+    service = MagicMock()
+    service.users().settings().filters().list().execute.return_value = {
+        "filter": [
+            {
+                "id": "filter1",
+                "criteria": {"from": "news@example.com"},
+                "action": {"addLabelIds": ["Label_1"], "removeLabelIds": ["INBOX"]},
+            },
+            {
+                "id": "filter2",
+                "criteria": {"query": "subject:alert"},
+                "action": {"addLabelIds": ["Label_2"]},
+            },
+        ]
+    }
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        result = await gmail_module.gmail_list_filters()
+
+    env = json.loads(result)
+    assert env["success"] is True
+    assert len(env["data"]) == 2
+    assert env["data"][0]["id"] == "filter1"
+    assert env["data"][1]["criteria"]["query"] == "subject:alert"
+
+
+@pytest.mark.asyncio
+async def test_gmail_list_filters_empty():
+    service = MagicMock()
+    service.users().settings().filters().list().execute.return_value = {}
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        result = await gmail_module.gmail_list_filters()
+
+    env = json.loads(result)
+    assert env["success"] is True
+    assert env["data"] == []
+
+
+# ---------------------------------------------------------------------------
+# gmail_create_label
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gmail_create_label_basic():
+    service = MagicMock()
+    service.users().labels().create().execute.return_value = {
+        "id": "Label_99",
+        "name": "Newsletters/AI",
+        "type": "user",
+    }
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        result = await gmail_module.gmail_create_label(name="Newsletters/AI")
+
+    env = json.loads(result)
+    assert env["success"] is True
+    assert env["data"]["id"] == "Label_99"
+    assert env["data"]["name"] == "Newsletters/AI"
+    assert env["data"]["type"] == "user"
+    assert env["pagination"] is None  # singleton
+
+
+@pytest.mark.asyncio
+async def test_gmail_create_label_custom_visibility():
+    service = MagicMock()
+    service.users().labels().create().execute.return_value = {
+        "id": "Label_100",
+        "name": "Archive/Old",
+        "type": "user",
+    }
+    captured_body = {}
+
+    original_create = service.users().labels().create
+
+    def capture_create(userId, body):
+        captured_body.update(body)
+        return original_create(userId=userId, body=body)
+
+    service.users().labels().create.side_effect = capture_create
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        await gmail_module.gmail_create_label(
+            name="Archive/Old",
+            message_list_visibility="hide",
+            label_list_visibility="labelHide",
+        )
+
+    # Verify the body sent to the API includes the custom visibility values
+    assert captured_body.get("messageListVisibility") == "hide"
+    assert captured_body.get("labelListVisibility") == "labelHide"
+
+
+# ---------------------------------------------------------------------------
+# gmail_create_filter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gmail_create_filter_with_from():
+    service = MagicMock()
+    service.users().settings().filters().create().execute.return_value = {
+        "id": "ANe1BmjNEW",
+        "criteria": {"from": "dan@tldrnewsletter.com"},
+        "action": {"addLabelIds": ["Label_99"], "removeLabelIds": ["INBOX", "UNREAD"]},
+    }
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        result = await gmail_module.gmail_create_filter(
+            from_="dan@tldrnewsletter.com",
+            add_label_ids=["Label_99"],
+            remove_label_ids=["INBOX", "UNREAD"],
+        )
+
+    env = json.loads(result)
+    assert env["success"] is True
+    assert env["data"]["id"] == "ANe1BmjNEW"
+    assert env["data"]["criteria"]["from"] == "dan@tldrnewsletter.com"
+    assert "INBOX" in env["data"]["action"]["removeLabelIds"]
+
+
+@pytest.mark.asyncio
+async def test_gmail_create_filter_with_query():
+    service = MagicMock()
+    service.users().settings().filters().create().execute.return_value = {
+        "id": "ANe1BmjQRY",
+        "criteria": {"query": "from:(a@x.com OR b@y.com)"},
+        "action": {"addLabelIds": ["Label_47"]},
+    }
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        result = await gmail_module.gmail_create_filter(
+            query="from:(a@x.com OR b@y.com)",
+            add_label_ids=["Label_47"],
+        )
+
+    env = json.loads(result)
+    assert env["success"] is True
+    assert env["data"]["criteria"]["query"] == "from:(a@x.com OR b@y.com)"
+    # No removeLabelIds in action when not specified
+    assert "removeLabelIds" not in env["data"]["action"]
+
+
+@pytest.mark.asyncio
+async def test_gmail_create_filter_no_criteria_raises():
+    from mcp.server.fastmcp.exceptions import ToolError
+    with pytest.raises(ToolError, match="criteria"):
+        await gmail_module.gmail_create_filter(add_label_ids=["Label_1"])
+
+
+@pytest.mark.asyncio
+async def test_gmail_create_filter_no_labels_raises():
+    from mcp.server.fastmcp.exceptions import ToolError
+    with pytest.raises(ToolError):
+        await gmail_module.gmail_create_filter(from_="someone@example.com", add_label_ids=[])
+
+
+@pytest.mark.asyncio
+async def test_gmail_create_filter_has_attachment():
+    service = MagicMock()
+    service.users().settings().filters().create().execute.return_value = {
+        "id": "ANe1BmjATT",
+        "criteria": {"hasAttachment": True},
+        "action": {"addLabelIds": ["Label_2"]},
+    }
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        result = await gmail_module.gmail_create_filter(
+            has_attachment=True,
+            add_label_ids=["Label_2"],
+        )
+
+    env = json.loads(result)
+    assert env["success"] is True
+    assert env["data"]["criteria"]["hasAttachment"] is True
+
+
+# ---------------------------------------------------------------------------
+# gmail_bulk_modify
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gmail_bulk_modify_add_label():
+    service = MagicMock()
+    service.users().messages().batchModify().execute.return_value = None  # 204 no body
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        result = await gmail_module.gmail_bulk_modify(
+            message_ids=["msg1", "msg2", "msg3"],
+            add_labels=["Label_99"],
+        )
+
+    env = json.loads(result)
+    assert env["success"] is True
+    assert env["data"]["modified_count"] == 3
+    assert set(env["data"]["message_ids"]) == {"msg1", "msg2", "msg3"}
+
+
+@pytest.mark.asyncio
+async def test_gmail_bulk_modify_remove_label():
+    service = MagicMock()
+    service.users().messages().batchModify().execute.return_value = None
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        result = await gmail_module.gmail_bulk_modify(
+            message_ids=["msg1"],
+            remove_labels=["INBOX"],
+        )
+
+    env = json.loads(result)
+    assert env["success"] is True
+    assert env["data"]["modified_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_gmail_bulk_modify_no_labels_raises():
+    from mcp.server.fastmcp.exceptions import ToolError
+    with pytest.raises(ToolError):
+        await gmail_module.gmail_bulk_modify(message_ids=["msg1"])
+
+
+@pytest.mark.asyncio
+async def test_gmail_bulk_modify_empty_ids_raises():
+    from mcp.server.fastmcp.exceptions import ToolError
+    with pytest.raises(ToolError):
+        await gmail_module.gmail_bulk_modify(message_ids=[], add_labels=["Label_1"])
+
+
+# ---------------------------------------------------------------------------
+# gmail_create_draft
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gmail_create_draft_basic():
+    service = MagicMock()
+    service.users().drafts().create().execute.return_value = {
+        "id": "draft1",
+        "message": {"id": "msg_draft1", "threadId": "thread1"},
+    }
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        result = await gmail_module.gmail_create_draft(
+            to=["recipient@example.com"],
+            subject="Draft subject",
+            body="Draft body text.",
+        )
+
+    env = json.loads(result)
+    assert env["success"] is True
+    assert env["data"]["draft_id"] == "draft1"
+    assert env["data"]["message_id"] == "msg_draft1"
+
+
+@pytest.mark.asyncio
+async def test_gmail_create_draft_with_cc_bcc():
+    service = MagicMock()
+    service.users().drafts().create().execute.return_value = {
+        "id": "draft2",
+        "message": {"id": "msg_draft2"},
+    }
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        result = await gmail_module.gmail_create_draft(
+            to=["to@example.com"],
+            subject="Test",
+            body="Body",
+            cc=["cc@example.com"],
+            bcc=["bcc@example.com"],
+        )
+
+    env = json.loads(result)
+    assert env["success"] is True
+    assert env["data"]["draft_id"] == "draft2"
+    # Verify the API was called with a body containing a raw message
+    call_kwargs = service.users().drafts().create.call_args.kwargs
+    assert "raw" in call_kwargs["body"]["message"]
+
+
+# ---------------------------------------------------------------------------
+# gmail_get_attachment
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gmail_get_attachment_saves_file(tmp_path):
+    content = b"PDF file content here"
+    encoded = base64.urlsafe_b64encode(content).decode()
+    service = MagicMock()
+    service.users().messages().attachments().get().execute.return_value = {"data": encoded}
+
+    save_path = str(tmp_path / "report.pdf")
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        result = await gmail_module.gmail_get_attachment(
+            message_id="msg1",
+            attachment_id="att_abc",
+            filename="report.pdf",
+            save_path=save_path,
+        )
+
+    env = json.loads(result)
+    assert env["success"] is True
+    assert env["data"]["filename"] == "report.pdf"
+    assert env["data"]["size_bytes"] == len(content)
+    assert Path(save_path).read_bytes() == content
+
+
+@pytest.mark.asyncio
+async def test_gmail_get_attachment_creates_parent_dirs(tmp_path):
+    content = b"data"
+    encoded = base64.urlsafe_b64encode(content).decode()
+    service = MagicMock()
+    service.users().messages().attachments().get().execute.return_value = {"data": encoded}
+
+    save_path = str(tmp_path / "nested" / "deep" / "file.bin")
+
+    with patch.object(gmail_module, "_gmail_service", return_value=service), \
+         patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
+        await gmail_module.gmail_get_attachment(
+            message_id="msg1",
+            attachment_id="att_1",
+            filename="file.bin",
+            save_path=save_path,
+        )
+
+    assert Path(save_path).exists()
