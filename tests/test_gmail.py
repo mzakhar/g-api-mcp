@@ -571,15 +571,6 @@ async def test_gmail_create_label_custom_visibility():
         "name": "Archive/Old",
         "type": "user",
     }
-    captured_body = {}
-
-    original_create = service.users().labels().create
-
-    def capture_create(userId, body):
-        captured_body.update(body)
-        return original_create(userId=userId, body=body)
-
-    service.users().labels().create.side_effect = capture_create
 
     with patch.object(gmail_module, "_gmail_service", return_value=service), \
          patch("asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn()):
@@ -590,8 +581,9 @@ async def test_gmail_create_label_custom_visibility():
         )
 
     # Verify the body sent to the API includes the custom visibility values
-    assert captured_body.get("messageListVisibility") == "hide"
-    assert captured_body.get("labelListVisibility") == "labelHide"
+    call_kwargs = service.users().labels().create.call_args.kwargs
+    assert call_kwargs["body"]["messageListVisibility"] == "hide"
+    assert call_kwargs["body"]["labelListVisibility"] == "labelHide"
 
 
 # ---------------------------------------------------------------------------
