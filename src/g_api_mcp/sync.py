@@ -286,12 +286,27 @@ def _route_task(
 def write_vault_task(line: str, target_file: Path, section: str) -> bool:
     """Insert a task line into the vault file under the given section.
 
-    Always inserts — duplicate prevention is handled upstream by the sync
-    state's updated-timestamp check.  Returns True on success, False on OSError.
+    Skips the write if an identical line already exists in the file.
+    Returns True on success (including skip), False on OSError.
     """
     try:
         if target_file.exists():
             text = target_file.read_text(encoding="utf-8")
+            if line in text:
+                return True
+            # If this line carries a gtask anchor and an existing line has the
+            # same anchor, replace it in-place (handles title/status updates).
+            gtask_match = re.search(r"<!-- gtask:[^>]+ -->", line)
+            if gtask_match:
+                anchor = re.escape(gtask_match.group(0))
+                old_line_pattern = re.compile(r"^.*" + anchor + r".*$", re.MULTILINE)
+                new_text, count = old_line_pattern.subn(line, text)
+                if count > 0:
+                    tmp = target_file.with_suffix(".tmp")
+                    tmp.write_text(new_text, encoding="utf-8")
+                    tmp.replace(target_file)
+                    return True
+            # No replacement made — fall through to normal insert
         else:
             target_file.parent.mkdir(parents=True, exist_ok=True)
             text = f"# {target_file.stem}\n\n{section}\n\n"

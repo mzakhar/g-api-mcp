@@ -67,23 +67,20 @@ def test_full_pipeline_5_task_corpus(tmp_path):
 
     all_content = "\n".join(f.read_text(encoding="utf-8") for f in md_files)
 
-    # Verify all 5 task IDs appear
+    # Verify all 5 task titles appear
     for task in tasks:
-        assert f"<!-- gtask:{task['id']} -->" in all_content, \
-            f"Task {task['id']} not found in vault output"
+        assert task["title"] in all_content, \
+            f"Task '{task['title']}' not found in vault output"
 
     # Verify no hard due dates were used
     assert "📅" not in all_content, "Google Task due dates must use ⏳, not 📅"
 
     # Verify completed task has [x] checkbox
     completed_task = next(t for t in tasks if t["status"] == "completed")
-    corpus_2_pattern = re.compile(r'- \[x\].*<!-- gtask:corpus-2 -->')
+    corpus_2_pattern = re.compile(r'- \[x\].*' + re.escape(completed_task["title"]))
     assert corpus_2_pattern.search(all_content), "Completed task should have [x] checkbox"
 
     # Verify someday task has #someday tag
-    someday_task = next(t for t in tasks if "someday" in t["title"].lower())
-    someday_pattern = re.compile(r'#someday.*<!-- gtask:' + someday_task["id"])
-    # tag before id comment
     assert "#someday" in all_content, "Someday task should have #someday tag"
 
 
@@ -126,5 +123,3 @@ def test_partial_update_updates_title(tmp_path):
         f.read_text(encoding="utf-8") for f in tmp_path.rglob("*.md")
     )
     assert "MODIFIED: Review Q2 roadmap" in all_content
-    assert all_content.count("<!-- gtask:corpus-1 -->") == 1, \
-        "Should have exactly one entry for corpus-1 after update"

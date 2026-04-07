@@ -1,10 +1,10 @@
 # g-api-mcp
 
-A local stdio MCP server wrapping Gmail, Google Calendar, and Google Tasks for use with Claude Code and Claude Desktop.
+A local stdio MCP server wrapping Gmail, Google Calendar, Google Tasks, and Google Contacts for use with Claude Code and Claude Desktop.
 
 ## Features
 
-- **22 tools** across Gmail (7), Calendar (7), Tasks (7), and Sync (1)
+- **34 tools** across Gmail (13), Calendar (7), Tasks (8), and Contacts (6)
 - **Context-efficient responses** — every tool returns a JSON envelope with `pagination` and `context_hint.estimated_tokens` so the LLM can plan before fetching more data
 - **List-then-fetch pattern** — list tools return thin summaries (IDs + metadata, no body); get tools fetch full content for specific IDs on demand
 - **Cursor-based pagination** — all list tools accept `page_cursor` and return `pagination.next_cursor`
@@ -12,18 +12,34 @@ A local stdio MCP server wrapping Gmail, Google Calendar, and Google Tasks for u
 
 ## Tools
 
-### Gmail
+### Gmail (13)
+
 | Tool | Description |
 |---|---|
 | `gmail_list_messages` | Search/list messages — returns thin summaries only |
-| `gmail_get_message` | Full content (body, headers, attachment metadata) for one message |
+| `gmail_get_message` | Full content (body, headers, attachment metadata, unsubscribe headers) for one message |
 | `gmail_send_message` | Compose and send; supports threaded replies |
 | `gmail_create_draft` | Save to Drafts without sending |
-| `gmail_list_labels` | All labels (system + user-created) |
-| `gmail_modify_message` | Add/remove labels (mark read, star, archive, etc.) |
+| `gmail_modify_message` | Add/remove labels on one message (mark read, star, archive, etc.) |
+| `gmail_bulk_modify` | Add/remove labels on up to 1000 messages in one call |
 | `gmail_get_attachment` | Download an attachment to a local path |
+| `gmail_list_labels` | All labels (system + user-created) with IDs |
+| `gmail_create_label` | Create a new label; use `/` for nesting (e.g. `Finance/Receipts`) |
+| `gmail_delete_label` | Delete a label (messages are not deleted) |
+| `gmail_list_filters` | All inbox filters with criteria and actions |
+| `gmail_create_filter` | Create a filter to auto-label or archive incoming mail |
+| `gmail_delete_filter` | Delete a filter by ID |
 
-### Calendar
+`gmail_get_message` returns three unsubscribe fields:
+
+| Field | Description |
+|---|---|
+| `list_unsubscribe` | Raw `List-Unsubscribe` header value (mailto: or https: URL) |
+| `list_unsubscribe_post` | Raw `List-Unsubscribe-Post` header value |
+| `one_click_unsubscribe` | `true` if sender supports RFC 8058 one-click unsubscribe |
+
+### Calendar (7)
+
 | Tool | Description |
 |---|---|
 | `calendar_list_calendars` | All calendars with IDs and access roles |
@@ -34,7 +50,8 @@ A local stdio MCP server wrapping Gmail, Google Calendar, and Google Tasks for u
 | `calendar_delete_event` | Delete with optional cancellation notices |
 | `calendar_quick_add` | Natural-language event creation |
 
-### Tasks
+### Tasks (8)
+
 | Tool | Description |
 |---|---|
 | `tasks_list_tasklists` | All task lists with IDs |
@@ -44,14 +61,24 @@ A local stdio MCP server wrapping Gmail, Google Calendar, and Google Tasks for u
 | `tasks_update_task` | Partial update — title, notes, due date, status |
 | `tasks_complete_task` | Mark done and stamp completion time |
 | `tasks_delete_task` | Permanently delete a task |
+| `tasks_sync_to_vault` | Sync tasks to an Obsidian vault (see [Sync](#sync) below) |
 
-### Sync
+### Contacts (6)
 
 | Tool | Description |
 |---|---|
-| `tasks_sync_to_vault` | Fetch tasks changed since last sync, write them to the Obsidian vault as formatted task lines, and mark them complete in Google Tasks |
+| `contacts_list` | All contacts — thin summaries |
+| `contacts_get` | Full contact by resource name |
+| `contacts_search` | Search by name, email, or phone |
+| `contacts_create` | Create a new contact |
+| `contacts_update` | Update fields on an existing contact |
+| `contacts_delete` | Delete a contact |
 
-The sync tool is driven by a config file at `%APPDATA%\g-api-mcp\sync-config.json`. Copy `sync-config.example.json` from the project root and edit it:
+### Sync
+
+`tasks_sync_to_vault` fetches tasks changed since last sync, writes them to an Obsidian vault as formatted task lines, and marks them complete in Google Tasks.
+
+Driven by a config file at `%APPDATA%\g-api-mcp\sync-config.json`. Copy `sync-config.example.json` from the project root and edit:
 
 ```json
 {
@@ -73,7 +100,7 @@ The sync tool is driven by a config file at `%APPDATA%\g-api-mcp\sync-config.jso
 
 **Sync flow:** write to vault → append `[synced-to-vault: ...]` to the task's Google notes field → mark complete in Google Tasks. Re-running is safe — already-processed tasks are skipped via a state file at `%APPDATA%\g-api-mcp\sync-state.json`.
 
-The sync can also be run as a standalone CLI:
+Can also be run as a standalone CLI:
 
 ```bash
 g-api-mcp-sync
@@ -108,22 +135,46 @@ Every tool returns a JSON string with this shape:
 
 ## Setup
 
+### Prerequisites
+
+- Python 3.11+
+- Windows (credential storage uses Windows Credential Locker via `keyring`)
+- A Google account
+
 ### 1. Google Cloud project
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com)
-2. Create or select a project
-3. **APIs & Services → Library** — enable:
-   - Gmail API
-   - Google Calendar API
-   - Tasks API
-4. **APIs & Services → OAuth consent screen** — configure (External or Internal), add yourself as a test user
-5. **APIs & Services → Credentials → Create → OAuth client ID → Desktop app** → download JSON
-6. Save the downloaded file as `client_secrets.json` in this directory
+2. Create a new project (or select an existing one)
+3. **APIs & Services → Library** — search for and enable each of these:
+   - **Gmail API**
+   - **Google Calendar API**
+   - **Tasks API**
+   - **People API** (required for Contacts tools)
+4. **APIs & Services → OAuth consent screen**:
+   - Choose **External** (works for personal accounts)
+   - Fill in App name, support email, and developer contact
+   - On the **Scopes** step you can skip adding scopes manually — `auth_setup.py` requests them at runtime
+   - On the **Test users** step, add your own Google account email
+   - Leave the app in **Testing** mode (no need to publish)
+
+   > **Note:** Apps in Testing mode issue refresh tokens that expire after 7 days of inactivity. If you get auth errors after a week of not using the server, re-run `python auth_setup.py`.
+
+5. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+   - Application type: **Desktop app**
+   - Give it any name
+   - Click **Download JSON**
+6. Save the downloaded file as `client_secrets.json` in the project root (next to `auth_setup.py`)
 
 ### 2. Install
 
 ```bash
 pip install -e .
+```
+
+Or with dev dependencies (for running tests):
+
+```bash
+pip install -e ".[dev]"
 ```
 
 ### 3. Authenticate
@@ -132,25 +183,61 @@ pip install -e .
 python auth_setup.py
 ```
 
-Opens a browser for Google OAuth2 consent. On completion, saves the refresh token to Windows Credential Locker. Only needs to be run once (or again if the refresh token expires).
+Opens a browser for Google OAuth2 consent. Grant access to all requested scopes. On completion, saves the refresh token to Windows Credential Locker. Only needs to be run once (or again after a 7-day Testing-mode expiry).
+
+You can also use the installed script alias:
+
+```bash
+g-api-mcp-auth
+```
 
 ### 4. Register with Claude Code
 
-The `.mcp.json` in this directory registers the server automatically when you open this project in Claude Code. No further configuration needed.
+Add the server to your Claude Code MCP config. The recommended approach is user-level registration so it's available in all projects.
 
-To register globally (available in all projects), add the `mcpServers` block from `.mcp.json` to `~/.claude/settings.json`.
+**User-level (`~/.claude/mcp.json`):**
+
+```json
+{
+  "mcpServers": {
+    "g-api-mcp": {
+      "command": "python",
+      "args": ["-m", "g_api_mcp.server"],
+      "cwd": "/path/to/g-api-mcp",
+      "env": {
+        "PYTHONPATH": "/path/to/g-api-mcp/src"
+      }
+    }
+  }
+}
+```
+
+Replace `/path/to/g-api-mcp` with the absolute path to this directory.
+
+**Project-level (`.mcp.json` in the project root):**
+
+Same format, but only active when that project is open in Claude Code.
+
+After adding the config, restart Claude Code or run `/mcp` to reconnect.
+
+### 5. Verify
+
+In Claude Code, ask: *"List my Gmail labels"* — if the server is connected you'll see your labels returned.
 
 ## Security notes
 
 - `client_secrets.json` is gitignored — never commit it
 - The refresh token is stored in Windows Credential Locker (DPAPI-encrypted), not as a plaintext file
 - `client_id` and `client_secret` are **not** stored in the credential store — they are read from `client_secrets.json` on every token refresh, so rotating the client secret in Cloud Console takes effect without re-authenticating
+- All API calls are made locally — no data passes through any third-party proxy
 
 ## OAuth2 scopes requested
 
 | Scope | Purpose |
 |---|---|
-| `gmail.modify` | Read inbox, search, apply labels |
+| `gmail.modify` | Read inbox, search, apply/create/delete labels and filters |
 | `gmail.send` | Send messages and manage drafts |
+| `gmail.settings.basic` | Create and delete inbox filters |
 | `calendar` | Read and write calendar events |
 | `tasks` | Read and write tasks |
+| `contacts` | Read and write Google Contacts (People API) |
