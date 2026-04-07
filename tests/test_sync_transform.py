@@ -58,7 +58,7 @@ def test_basic_incomplete_task():
     assert parsed["checkbox"] == " ", "open task should have space checkbox"
     assert parsed["priority"] == "🔼"
     assert parsed["scheduled"] == "2026-04-10"
-    assert parsed["task_id"] == "a1"
+    assert parsed["task_id"] is None  # gtask anchor no longer embedded in line
 
 
 def test_completed_task():
@@ -72,7 +72,7 @@ def test_completed_task():
     parsed = parse_task_line(_to_vault_line(task))
     assert parsed["checkbox"] == "x"
     assert parsed["completed"] == "2026-04-05"
-    assert parsed["task_id"] == "a2"
+    assert parsed["task_id"] is None  # gtask anchor no longer embedded in line
 
 
 def test_task_no_due_date_has_no_date_marker():
@@ -87,7 +87,7 @@ def test_deleted_task():
     task = {"id": "a4", "title": "Old task", "deleted": True}
     parsed = parse_task_line(_to_vault_line(task))
     assert parsed["checkbox"] == "-"
-    assert parsed["task_id"] == "a4"
+    assert parsed["task_id"] is None  # gtask anchor no longer embedded in line
 
 
 def test_task_with_short_notes_inline():
@@ -143,10 +143,11 @@ def test_google_task_due_date_never_emits_hard_due_emoji():
     assert "⏳" in line
 
 
-def test_task_id_always_present_in_comment():
+def test_task_id_not_embedded_in_line():
+    # gtask anchor was intentionally removed from vault task lines (commit 1a3138d)
     task = {"id": "myid123", "title": "Test", "status": "needsAction"}
     line = _to_vault_line(task)
-    assert "<!-- gtask:myid123 -->" in line
+    assert "<!-- gtask:myid123 -->" not in line
 
 
 def test_subtask_indented():
