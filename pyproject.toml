@@ -6,6 +6,10 @@ build-backend = "hatchling.build"
 name = "g-api-mcp"
 version = "0.1.0"
 description = "Google APIs (Gmail, Calendar, Tasks) MCP server"
+authors = [{name = "Mark Zakhar", email = "mark.zakhar@gmail.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+keywords = ["mcp", "gmail", "google-calendar", "google-tasks", "claude", "llm-tools"]
 requires-python = ">=3.11"
 dependencies = [
     "mcp[cli]>=1.26.0",
