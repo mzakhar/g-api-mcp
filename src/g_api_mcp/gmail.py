@@ -273,6 +273,10 @@ async def gmail_get_message(
     Token cost varies widely (500–15,000+) depending on message length — check
     context_hint.estimated_tokens in the response.
 
+    Also returns list_unsubscribe, list_unsubscribe_post, and one_click_unsubscribe
+    fields. one_click_unsubscribe=true means the sender supports RFC 8058 one-click
+    unsubscribe (List-Unsubscribe-Post: List-Unsubscribe=One-Click).
+
     Args:
         message_id: Gmail message ID (from gmail_list_messages results).
         include_html: Also include body_html field. Default false — body_text is
@@ -297,6 +301,9 @@ async def gmail_get_message(
     body_text, body_html = _extract_body(payload)
     attachments = _extract_attachments(payload)
 
+    list_unsub = headers.get("List-Unsubscribe", "")
+    list_unsub_post = headers.get("List-Unsubscribe-Post", "")
+
     data: dict[str, Any] = {
         "id": raw["id"],
         "thread_id": raw.get("threadId"),
@@ -309,6 +316,9 @@ async def gmail_get_message(
         "snippet": raw.get("snippet", ""),
         "body_text": body_text,
         "attachments": attachments,
+        "list_unsubscribe": list_unsub or None,
+        "list_unsubscribe_post": list_unsub_post or None,
+        "one_click_unsubscribe": bool(list_unsub_post and "List-Unsubscribe=One-Click" in list_unsub_post),
     }
     if include_html:
         data["body_html"] = body_html
